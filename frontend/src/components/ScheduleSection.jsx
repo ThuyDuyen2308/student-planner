@@ -70,8 +70,8 @@ export default function ScheduleSection({
       return;
     }
 
-    if (!dayOfWeek || !startTime || !endTime) {
-      addToast('Vui lòng nhập đầy đủ ngày và giờ học!', 'error');
+    if (!dayOfWeek || !startTime || !endTime || !room.trim()) {
+      addToast('Vui lòng nhập đầy đủ ngày, giờ và phòng học!', 'error');
       return;
     }
 
@@ -219,7 +219,7 @@ export default function ScheduleSection({
             </div>
 
             <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label" htmlFor="sch-room">Phòng học (Tùy chọn)</label>
+              <label className="form-label" htmlFor="sch-room">Phòng học</label>
               <input 
                 id="sch-room"
                 type="text"
@@ -227,6 +227,7 @@ export default function ScheduleSection({
                 placeholder="Ví dụ: P.203, Lab 1..."
                 value={room}
                 onChange={(e) => setRoom(e.target.value)}
+                required
               />
             </div>
 

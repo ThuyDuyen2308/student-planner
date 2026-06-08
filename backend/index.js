@@ -335,8 +335,8 @@ app.post('/api/schedules', authMiddleware, async (req, res) => {
   const { subject_id, day_of_week, start_time, end_time, room } = req.body;
   const userId = req.user.id;
 
-  if (!subject_id || !day_of_week || !start_time || !end_time) {
-    return res.status(400).json({ message: 'Subject, day of week, start time, and end time are required.' });
+  if (!subject_id || !day_of_week || !start_time || !end_time || !room || !room.trim()) {
+    return res.status(400).json({ message: 'Subject, day of week, start time, end time, and room are required.' });
   }
 
   try {
@@ -419,8 +419,8 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
   const { subject_id, day_of_week, start_time, end_time, room } = req.body;
   const userId = req.user.id;
 
-  if (!subject_id || !day_of_week || !start_time || !end_time) {
-    return res.status(400).json({ message: 'Subject, day of week, start time, and end time are required.' });
+  if (!subject_id || !day_of_week || !start_time || !end_time || !room || !room.trim()) {
+    return res.status(400).json({ message: 'Subject, day of week, start time, end time, and room are required.' });
   }
 
   try {

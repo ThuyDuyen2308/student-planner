@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
-import { Calendar, Plus, Trash2, Clock, MapPin, Filter, BookOpen } from 'lucide-react';
+import { Calendar, Plus, Trash2, Clock, MapPin, BookOpen } from 'lucide-react';
 
 const WEEKDAYS = [
   { value: 'Monday', label: 'T2' },

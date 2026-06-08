@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+/* eslint-disable react-hooks/purity */
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
-import { LogOut, BookOpen, Calendar, LayoutGrid, CheckCircle, Award } from 'lucide-react';
+import { LogOut, BookOpen, Calendar, LayoutGrid } from 'lucide-react';
 
 import Auth from './components/Auth';
 import GPAWidget from './components/GPAWidget';
@@ -92,8 +93,10 @@ export default function App() {
   // Initial fetch and fetch on token change
   useEffect(() => {
     if (token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // Render Login screen if not authenticated
@@ -233,6 +236,7 @@ export default function App() {
         schedules={schedules} 
         API_URL={API_URL} 
       />
+
 
     </div>
   );

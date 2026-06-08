@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+/* eslint-disable react-hooks/purity */
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { MessageSquare, Send, X, Bot, Sparkles } from 'lucide-react';
 
-export default function AIChatWidget({ token, subjects, schedules, API_URL }) {
+export default function AIChatWidget({ token, API_URL }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
     {

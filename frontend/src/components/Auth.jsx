@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import { BookOpen, Lock, User, LogIn, UserPlus } from 'lucide-react';
 
@@ -24,16 +24,18 @@ export default function Auth({ onAuthSuccess, addToast, API_URL }) {
         password: password.trim(),
       });
 
-      const { token, user } = response.data;
-      localStorage.setItem('student_planner_token', token);
-      localStorage.setItem('student_planner_user', JSON.stringify(user));
-      
-      addToast(
-        isLogin ? `Chào mừng trở lại, ${user.username}! ✨` : 'Đăng ký tài khoản thành công! 🎉', 
-        'success'
-      );
-      
-      onAuthSuccess(token, user);
+      if (isLogin) {
+        const { token, user } = response.data;
+        localStorage.setItem('student_planner_token', token);
+        localStorage.setItem('student_planner_user', JSON.stringify(user));
+        
+        addToast(`Chào mừng trở lại, ${user.username}! ✨`, 'success');
+        onAuthSuccess(token, user);
+      } else {
+        addToast('Đăng ký tài khoản thành công! Vui lòng đăng nhập. 🎉', 'success');
+        setIsLogin(true);
+        setPassword('');
+      }
     } catch (error) {
       console.error('Auth error:', error);
       const msg = error.response?.data?.message || 'Đã xảy ra lỗi, vui lòng thử lại.';

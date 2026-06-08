@@ -51,11 +51,8 @@ app.post('/api/auth/register', async (req, res) => {
 
     const userId = result.insertId;
 
-    // Generate JWT token
-    const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
-
     res.status(201).json({
-      token,
+      message: 'Đăng ký tài khoản thành công! Vui lòng đăng nhập.',
       user: { id: userId, username }
     });
   } catch (error) {
@@ -320,7 +317,27 @@ app.post('/api/schedules', authMiddleware, async (req, res) => {
 
     const targetSubject = subjects[0];
 
-    // 2. Insert schedule
+    // 2. Check for schedule conflict/overlap on the same day for this user
+    const conflictingSchedules = await query(`
+      SELECT s.*, sub.name AS subject_name 
+      FROM schedules s
+      INNER JOIN subjects sub ON s.subject_id = sub.id
+      WHERE s.user_id = ? 
+        AND s.day_of_week = ? 
+        AND s.start_time < ? 
+        AND s.end_time > ?
+    `, [userId, day_of_week, end_time, start_time]);
+
+    if (conflictingSchedules.length > 0) {
+      const conflict = conflictingSchedules[0];
+      const conflictStart = conflict.start_time.substring(0, 5);
+      const conflictEnd = conflict.end_time.substring(0, 5);
+      return res.status(400).json({ 
+        message: `Trùng lịch học! Đã có môn "${conflict.subject_name}" học từ ${conflictStart} đến ${conflictEnd} vào ngày này.` 
+      });
+    }
+
+    // 3. Insert schedule
     const result = await query(
       'INSERT INTO schedules (user_id, subject_id, day_of_week, start_time, end_time, room) VALUES (?, ?, ?, ?, ?, ?)',
       [userId, subject_id, day_of_week, start_time, end_time, room ? room.trim() : null]

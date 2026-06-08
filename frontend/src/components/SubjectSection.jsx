@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import { Search, Plus, Trash2, Edit2, Check, X, AlertTriangle, BookOpen } from 'lucide-react';
 
@@ -63,7 +63,7 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
     try {
       if (editingSubject) {
         // Edit API PUT /api/subjects/:id
-        const res = await axios.put(
+        await axios.put(
           `${API_URL}/api/subjects/${editingSubject.id}`, 
           { name: name.trim(), credit: parsedCredit, score: parsedScore },
           axiosConfig
@@ -73,7 +73,7 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
         handleCancelEdit();
       } else {
         // Add API POST /api/subjects
-        const res = await axios.post(
+        await axios.post(
           `${API_URL}/api/subjects`,
           { name: name.trim(), credit: parsedCredit, score: parsedScore },
           axiosConfig

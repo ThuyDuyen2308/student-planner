@@ -6,10 +6,12 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
   const [name, setName] = useState('');
   const [credit, setCredit] = useState('');
   const [score, setScore] = useState('');
+  const [status, setStatus] = useState('completed');
   const [editingSubject, setEditingSubject] = useState(null);
   
-  // Search state
+  // Filter and Search states
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
 
   // Delete modal state
   const [deleteConfirmSubject, setDeleteConfirmSubject] = useState(null);
@@ -19,9 +21,11 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
   };
 
   const getScoreClass = (sc) => {
-    if (sc >= 8.5) return 'score-excellent';
-    if (sc >= 6.5) return 'score-good';
-    if (sc >= 5.0) return 'score-average';
+    if (sc === null || sc === undefined) return '';
+    const numScore = parseFloat(sc);
+    if (numScore >= 8.5) return 'score-excellent';
+    if (numScore >= 6.5) return 'score-good';
+    if (numScore >= 5.0) return 'score-average';
     return 'score-fail';
   };
 
@@ -29,7 +33,8 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
     setEditingSubject(sub);
     setName(sub.name);
     setCredit(sub.credit);
-    setScore(sub.score);
+    setScore(sub.score !== null && sub.score !== undefined ? sub.score : '');
+    setStatus(sub.status || 'completed');
   };
 
   const handleCancelEdit = () => {
@@ -37,27 +42,38 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
     setName('');
     setCredit('');
     setScore('');
+    setStatus('completed');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!name.trim() || !credit || score === '') {
+    if (!name.trim() || !credit || (status === 'completed' && (score === '' || score === null))) {
       addToast('Vui lòng điền đầy đủ các thông tin môn học!', 'error');
       return;
     }
 
     const parsedCredit = parseInt(credit, 10);
-    const parsedScore = parseFloat(score);
-
     if (isNaN(parsedCredit) || parsedCredit <= 0) {
       addToast('Số tín chỉ phải là một số nguyên dương!', 'error');
       return;
     }
 
-    if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-      addToast('Điểm số phải từ 0 đến 10!', 'error');
-      return;
+    let parsedScore = null;
+    if (status === 'completed') {
+      parsedScore = parseFloat(score);
+      if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
+        addToast('Điểm số phải từ 0 đến 10!', 'error');
+        return;
+      }
+    } else {
+      if (score !== '' && score !== null && score !== undefined) {
+        parsedScore = parseFloat(score);
+        if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
+          addToast('Điểm số phải từ 0 đến 10!', 'error');
+          return;
+        }
+      }
     }
 
     try {
@@ -65,7 +81,7 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
         // Edit API PUT /api/subjects/:id
         await axios.put(
           `${API_URL}/api/subjects/${editingSubject.id}`, 
-          { name: name.trim(), credit: parsedCredit, score: parsedScore },
+          { name: name.trim(), credit: parsedCredit, score: parsedScore, status },
           axiosConfig
         );
         addToast(`Đã sửa môn "${name}" thành công!`, 'success');
@@ -75,13 +91,14 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
         // Add API POST /api/subjects
         await axios.post(
           `${API_URL}/api/subjects`,
-          { name: name.trim(), credit: parsedCredit, score: parsedScore },
+          { name: name.trim(), credit: parsedCredit, score: parsedScore, status },
           axiosConfig
         );
         addToast(`Đã thêm môn học "${name}" thành công!`, 'success');
         setName('');
         setCredit('');
         setScore('');
+        setStatus('completed');
         onSubjectChange();
       }
     } catch (error) {
@@ -115,9 +132,11 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
   };
 
   // Filter subjects locally for quick responsiveness
-  const filteredSubjects = subjects.filter(sub => 
-    sub.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredSubjects = subjects.filter(sub => {
+    const matchesSearch = sub.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'All' || (sub.status || 'completed') === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -143,6 +162,28 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
             />
           </div>
 
+          <div className="form-group" style={{ marginBottom: '1rem' }}>
+            <label className="form-label">Trạng thái học tập</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className={`weekday-btn ${status === 'completed' ? 'active' : ''}`}
+                onClick={() => setStatus('completed')}
+                style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem' }}
+              >
+                Đã hoàn thành
+              </button>
+              <button
+                type="button"
+                className={`weekday-btn ${status === 'studying' ? 'active' : ''}`}
+                onClick={() => setStatus('studying')}
+                style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem' }}
+              >
+                Đang học
+              </button>
+            </div>
+          </div>
+
           <div className="form-row">
             <div className="form-group">
               <label className="form-label" htmlFor="subj-credit">Số tín chỉ</label>
@@ -159,7 +200,9 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
               />
             </div>
             <div className="form-group">
-              <label className="form-label" htmlFor="subj-score">Điểm số (0-10)</label>
+              <label className="form-label" htmlFor="subj-score">
+                Điểm số {status === 'completed' ? '(0-10)' : '(Chưa có - tùy chọn)'}
+              </label>
               <input 
                 id="subj-score"
                 type="number"
@@ -170,7 +213,7 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
                 placeholder="Điểm số..."
                 value={score}
                 onChange={(e) => setScore(e.target.value)}
-                required
+                required={status === 'completed'}
               />
             </div>
           </div>
@@ -205,7 +248,7 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
         </div>
 
         {/* Search Bar */}
-        <div className="search-wrapper">
+        <div className="search-wrapper" style={{ marginBottom: '0.75rem' }}>
           <Search size={18} className="search-icon" />
           <input 
             type="text"
@@ -216,13 +259,41 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
           />
         </div>
 
+        {/* Status Tabs Filter */}
+        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
+          <button
+            type="button"
+            className={`weekday-btn ${statusFilter === 'All' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('All')}
+            style={{ padding: '4px 10px', fontSize: '0.75rem', minWidth: '50px' }}
+          >
+            Tất cả
+          </button>
+          <button
+            type="button"
+            className={`weekday-btn ${statusFilter === 'studying' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('studying')}
+            style={{ padding: '4px 10px', fontSize: '0.75rem', minWidth: '70px' }}
+          >
+            Đang học
+          </button>
+          <button
+            type="button"
+            className={`weekday-btn ${statusFilter === 'completed' ? 'active' : ''}`}
+            onClick={() => setStatusFilter('completed')}
+            style={{ padding: '4px 10px', fontSize: '0.75rem', minWidth: '100px' }}
+          >
+            Đã hoàn thành
+          </button>
+        </div>
+
         {/* Subjects List */}
         <div className="subject-table-wrapper">
           {filteredSubjects.length === 0 ? (
             <div className="empty-state">
               <BookOpen size={36} />
               <p style={{ fontSize: '0.9rem' }}>
-                {searchQuery ? 'Không tìm thấy môn học nào phù hợp!' : 'Chưa có môn học nào được thêm.'}
+                {searchQuery || statusFilter !== 'All' ? 'Không tìm thấy môn học nào phù hợp!' : 'Chưa có môn học nào được thêm.'}
               </p>
             </div>
           ) : (
@@ -230,15 +301,31 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
               <div key={sub.id} className="subject-item">
                 <div className="subject-info">
                   <span className="subject-name">{sub.name}</span>
-                  <div className="subject-metadata">
+                  <div className="subject-metadata" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
                     <span>Tín chỉ: <strong>{sub.credit}</strong></span>
                     <span>•</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      Điểm: 
-                      <strong className={getScoreClass(sub.score)} style={{ fontSize: '0.9rem' }}>
-                        {Number(sub.score).toFixed(1)}
-                      </strong>
+                    <span 
+                      className={`subject-score-badge ${sub.status === 'studying' ? 'score-good' : 'score-excellent'}`} 
+                      style={{ 
+                        padding: '1px 6px', 
+                        fontSize: '0.7rem', 
+                        background: sub.status === 'studying' ? 'rgba(6, 182, 212, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+                        color: sub.status === 'studying' ? 'var(--secondary)' : 'var(--success)'
+                      }}
+                    >
+                      {sub.status === 'studying' ? 'Đang học' : 'Hoàn thành'}
                     </span>
+                    {sub.status !== 'studying' && sub.score !== null && (
+                      <>
+                        <span>•</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          Điểm: 
+                          <strong className={getScoreClass(sub.score)} style={{ fontSize: '0.9rem' }}>
+                            {Number(sub.score).toFixed(1)}
+                          </strong>
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
 

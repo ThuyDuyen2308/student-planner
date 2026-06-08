@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS `subjects` (
   `name` VARCHAR(255) NOT NULL,
   `credit` INT NOT NULL DEFAULT 3,
   `score` DECIMAL(4,2) DEFAULT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'completed',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
@@ -50,6 +51,24 @@ CREATE TABLE IF NOT EXISTS `schedules` (
   `start_time` TIME NOT NULL,
   `end_time` TIME NOT NULL,
   `room` VARCHAR(100) DEFAULT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`subject_id`) REFERENCES `subjects`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -------------------------------------------------------
+-- 4. BẢNG BÀI TẬP VÀ DEADLINE (assignments)
+-- Lưu trữ bài tập tự học, tiểu luận và các deadline cần làm
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `assignments` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `subject_id` INT,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT DEFAULT NULL,
+  `deadline` DATETIME NOT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'pending',
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,

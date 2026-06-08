@@ -8,6 +8,9 @@ import Auth from './components/Auth';
 import GPAWidget from './components/GPAWidget';
 import SubjectSection from './components/SubjectSection';
 import ScheduleSection from './components/ScheduleSection';
+import AssignmentSection from './components/AssignmentSection';
+import StatisticsWidget from './components/StatisticsWidget';
+import ReminderBanner from './components/ReminderBanner';
 import CalendarView from './components/CalendarView';
 import Toast from './components/Toast';
 import AIChatWidget from './components/AIChatWidget';
@@ -20,6 +23,7 @@ export default function App() {
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('student_planner_user') || 'null'));
   const [subjects, setSubjects] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [assignments, setAssignments] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' or 'calendar'
 
@@ -60,6 +64,7 @@ export default function App() {
     setUser(null);
     setSubjects([]);
     setSchedules([]);
+    setAssignments([]);
     addToast('Đã đăng xuất tài khoản thành công.', 'info');
   };
 
@@ -79,6 +84,10 @@ export default function App() {
       // Fetch schedules
       const resSchedules = await axios.get(`${API_URL}/api/schedules`, config);
       setSchedules(resSchedules.data);
+
+      // Fetch assignments
+      const resAssignments = await axios.get(`${API_URL}/api/assignments`, config);
+      setAssignments(resAssignments.data);
     } catch (error) {
       console.error('Fetch data error:', error);
       if (error.response?.status === 401) {
@@ -182,31 +191,55 @@ export default function App() {
       {/* Main Content Area */}
       <main>
         {activeTab === 'dashboard' ? (
-          <div className="dashboard-grid">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
             
-            {/* Left Column: GPA Widget & Subject manager */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <GPAWidget subjects={subjects} />
-              <SubjectSection 
-                subjects={subjects} 
-                onSubjectChange={fetchData} 
-                addToast={addToast} 
-                API_URL={API_URL} 
-                token={token} 
-              />
+            {/* Intelligent Reminder Banner */}
+            <ReminderBanner 
+              schedules={schedules} 
+              assignments={assignments} 
+              subjects={subjects} 
+            />
+
+            {/* Dashboard Grid */}
+            <div className="dashboard-grid">
+              
+              {/* Left Column: GPA Widget & Subject manager */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <GPAWidget subjects={subjects} />
+                <SubjectSection 
+                  subjects={subjects} 
+                  onSubjectChange={fetchData} 
+                  addToast={addToast} 
+                  API_URL={API_URL} 
+                  token={token} 
+                />
+              </div>
+
+              {/* Right Column: Schedule manager & Coursework tasks */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <ScheduleSection 
+                  schedules={schedules} 
+                  subjects={subjects}
+                  onScheduleChange={fetchData} 
+                  addToast={addToast} 
+                  API_URL={API_URL} 
+                  token={token} 
+                />
+                
+                <AssignmentSection 
+                  assignments={assignments}
+                  subjects={subjects}
+                  onAssignmentChange={fetchData}
+                  addToast={addToast}
+                  API_URL={API_URL}
+                  token={token}
+                />
+              </div>
+
             </div>
 
-            {/* Right Column: Schedule manager */}
-            <div>
-              <ScheduleSection 
-                schedules={schedules} 
-                subjects={subjects}
-                onScheduleChange={fetchData} 
-                addToast={addToast} 
-                API_URL={API_URL} 
-                token={token} 
-              />
-            </div>
+            {/* Visual Statistics Widget (Full width at bottom of dashboard) */}
+            <StatisticsWidget subjects={subjects} assignments={assignments} />
 
           </div>
         ) : (
@@ -236,7 +269,6 @@ export default function App() {
         schedules={schedules} 
         API_URL={API_URL} 
       />
-
 
     </div>
   );

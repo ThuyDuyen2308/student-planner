@@ -31,18 +31,23 @@ const getLetterGrade = (score) => {
 export default function GPAWidget({ subjects }) {
   const totalCredits = subjects.reduce((sum, sub) => sum + sub.credit, 0);
   
+  // Filter to only completed/graded subjects
+  const gradedSubjects = subjects.filter(sub => sub.status === 'completed' && sub.score !== null && sub.score !== undefined);
+  const gradedCredits = gradedSubjects.reduce((sum, sub) => sum + sub.credit, 0);
+  const studyingSubjectsCount = subjects.filter(sub => sub.status === 'studying').length;
+
   // 1. GPA system 10 (Weighted average score)
-  const weightedScoreSum10 = subjects.reduce((sum, sub) => sum + (parseFloat(sub.score) * sub.credit), 0);
-  const gpa10 = totalCredits > 0 ? (weightedScoreSum10 / totalCredits) : 0;
+  const weightedScoreSum10 = gradedSubjects.reduce((sum, sub) => sum + (parseFloat(sub.score) * sub.credit), 0);
+  const gpa10 = gradedCredits > 0 ? (weightedScoreSum10 / gradedCredits) : 0;
 
   // 2. GPA system 4 (Weighted average grade point out of 4.0)
-  const weightedScoreSum4 = subjects.reduce((sum, sub) => sum + (getGradePoint4(sub.score) * sub.credit), 0);
-  const gpa4 = totalCredits > 0 ? (weightedScoreSum4 / totalCredits) : 0;
+  const weightedScoreSum4 = gradedSubjects.reduce((sum, sub) => sum + (getGradePoint4(sub.score) * sub.credit), 0);
+  const gpa4 = gradedCredits > 0 ? (weightedScoreSum4 / gradedCredits) : 0;
   
   // Classification based on GPA 4.0
-  let classification = 'Chưa có môn';
+  let classification = 'Chưa tích lũy';
   let classClass = 'score-fail';
-  if (totalCredits > 0) {
+  if (gradedCredits > 0) {
     if (gpa4 >= 3.6) {
       classification = 'Xuất sắc 🏆';
       classClass = 'score-excellent';
@@ -112,13 +117,13 @@ export default function GPAWidget({ subjects }) {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', fontSize: '0.85rem' }}>
         <span style={{ color: 'var(--text-muted)' }}>
-          Môn học: <strong>{subjects.length}</strong>
+          Môn học: <strong>{subjects.length}</strong> {studyingSubjectsCount > 0 && `(${studyingSubjectsCount} đang học)`}
         </span>
         <span style={{ color: 'var(--text-muted)' }}>
-          Tín chỉ: <strong>{totalCredits}</strong>
+          Tín chỉ: <strong>{gradedCredits}</strong>/{totalCredits}
         </span>
         <span style={{ color: 'var(--text-muted)' }}>
-          Quy đổi: <strong>{totalCredits > 0 ? getLetterGrade(gpa10) : '-'}</strong>
+          Quy đổi: <strong>{gradedCredits > 0 ? getLetterGrade(gpa10) : '-'}</strong>
         </span>
       </div>
     </div>

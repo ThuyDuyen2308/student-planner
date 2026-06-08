@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { Calendar, Plus, Trash2, Clock, MapPin, BookOpen } from 'lucide-react';
+import { Calendar, Plus, Trash2, Edit2, Clock, MapPin, BookOpen, Check, X } from 'lucide-react';
 
 const WEEKDAYS = [
   { value: 'Monday', label: 'T2' },
@@ -25,6 +25,7 @@ export default function ScheduleSection({
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('10:00');
   const [room, setRoom] = useState('');
+  const [editingSchedule, setEditingSchedule] = useState(null);
   
   // Filter state
   const [selectedDayFilter, setSelectedDayFilter] = useState('All');
@@ -34,7 +35,6 @@ export default function ScheduleSection({
   };
 
   const formatTime = (timeString) => {
-    // timeString is like "08:00:00" -> return "08:00"
     if (!timeString) return '';
     return timeString.substring(0, 5);
   };
@@ -42,6 +42,24 @@ export default function ScheduleSection({
   const getDayLabel = (val) => {
     const found = WEEKDAYS.find(d => d.value === val);
     return found ? found.label : val;
+  };
+
+  const handleEdit = (sch) => {
+    setEditingSchedule(sch);
+    setSubjectId(sch.subject_id.toString());
+    setDayOfWeek(sch.day_of_week);
+    setStartTime(formatTime(sch.start_time));
+    setEndTime(formatTime(sch.end_time));
+    setRoom(sch.room || '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSchedule(null);
+    setSubjectId('');
+    setDayOfWeek('Monday');
+    setStartTime('08:00');
+    setEndTime('10:00');
+    setRoom('');
   };
 
   const handleSubmit = async (e) => {
@@ -57,33 +75,46 @@ export default function ScheduleSection({
       return;
     }
 
-    // Compare times
     if (startTime >= endTime) {
       addToast('Giờ kết thúc phải sau giờ bắt đầu!', 'error');
       return;
     }
 
     try {
-      await axios.post(
-        `${API_URL}/api/schedules`,
-        {
-          subject_id: parseInt(subjectId, 10),
-          day_of_week: dayOfWeek,
-          start_time: startTime + ':00',
-          end_time: endTime + ':00',
-          room: room.trim()
-        },
-        axiosConfig
-      );
-
-      addToast('Đã thêm lịch học thành công!', 'success');
-      // Reset form fields
-      setSubjectId('');
-      setRoom('');
+      if (editingSchedule) {
+        await axios.put(
+          `${API_URL}/api/schedules/${editingSchedule.id}`,
+          {
+            subject_id: parseInt(subjectId, 10),
+            day_of_week: dayOfWeek,
+            start_time: startTime + ':00',
+            end_time: endTime + ':00',
+            room: room.trim()
+          },
+          axiosConfig
+        );
+        addToast('Đã cập nhật lịch học thành công!', 'success');
+        handleCancelEdit();
+      } else {
+        await axios.post(
+          `${API_URL}/api/schedules`,
+          {
+            subject_id: parseInt(subjectId, 10),
+            day_of_week: dayOfWeek,
+            start_time: startTime + ':00',
+            end_time: endTime + ':00',
+            room: room.trim()
+          },
+          axiosConfig
+        );
+        addToast('Đã thêm lịch học thành công!', 'success');
+        setSubjectId('');
+        setRoom('');
+      }
       onScheduleChange();
     } catch (error) {
-      console.error('Schedule submit error:', error);
-      const msg = error.response?.data?.message || 'Không thể tạo lịch học.';
+      console.error('Schedule save error:', error);
+      const msg = error.response?.data?.message || 'Không thể lưu lịch học.';
       addToast(msg, 'error');
     }
   };
@@ -100,7 +131,6 @@ export default function ScheduleSection({
     }
   };
 
-  // Filter list
   const filteredSchedules = selectedDayFilter === 'All' 
     ? schedules 
     : schedules.filter(sch => sch.day_of_week === selectedDayFilter);
@@ -112,7 +142,7 @@ export default function ScheduleSection({
       <div className="glass-card">
         <h3 className="gradient-text" style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Calendar size={20} color="var(--secondary)" />
-          Thêm Lịch Học
+          {editingSchedule ? 'Sửa Lịch Học' : 'Thêm Lịch Học'}
         </h3>
 
         {subjects.length === 0 ? (
@@ -200,10 +230,23 @@ export default function ScheduleSection({
               />
             </div>
 
-            <button type="submit" className="btn btn-primary">
-              <Plus size={18} />
-              <span>Xác Nhận Lập Lịch</span>
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="submit" className="btn btn-primary" style={{ flex: 2 }}>
+                {editingSchedule ? <Check size={18} /> : <Plus size={18} />}
+                <span>{editingSchedule ? 'Cập Nhật' : 'Xác Nhận Lập Lịch'}</span>
+              </button>
+              {editingSchedule && (
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={handleCancelEdit}
+                  style={{ flex: 1 }}
+                >
+                  <X size={18} />
+                  <span>Hủy</span>
+                </button>
+              )}
+            </div>
 
           </form>
         )}
@@ -277,7 +320,14 @@ export default function ScheduleSection({
                   </div>
                 </div>
 
-                <div className="schedule-card-actions">
+                <div className="schedule-card-actions" style={{ display: 'flex', gap: '4px' }}>
+                  <button 
+                    onClick={() => handleEdit(sch)}
+                    className="btn-icon"
+                    title="Chỉnh sửa lịch học"
+                  >
+                    <Edit2 size={14} />
+                  </button>
                   <button 
                     onClick={() => handleDelete(sch.id, sch.subject_name)}
                     className="btn-icon btn-icon-danger"

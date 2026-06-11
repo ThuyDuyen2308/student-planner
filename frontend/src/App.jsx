@@ -1,8 +1,31 @@
+/**
+ * App.jsx - Component gốc của ứng dụng Student Planner
+ * ----------------------------------------------------------------
+ * THAY ĐỔI CHÍNH (feature/dashboard-redesign):
+ *   - [CẬP NHẬT GIAO DIỆN] Chuyển từ layout cũ sang kiến trúc
+ *     Sidebar (thanh điều hướng bên trái) + Main Content bên phải.
+ *   - [MỚI] 5 tab mới: Chứng chỉ, Thực tập, Mục tiêu, Hồ sơ, Admin.
+ *   - [MỚI] Quản lý state và fetch dữ liệu cho 5 module mới.
+ *   - [MỚI] Kiểm tra role (admin/user) để hiển thị tab Quản trị.
+ *   - [MỚI] Hàm handleProfileUpdate để cập nhật user sau khi sửa hồ sơ.
+ */
 /* eslint-disable react-hooks/purity */
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import confetti from 'canvas-confetti';
-import { LogOut, BookOpen, Calendar, LayoutGrid } from 'lucide-react';
+import { 
+  LogOut, 
+  BookOpen, 
+  Calendar, 
+  LayoutGrid, 
+  ListTodo, 
+  Award, 
+  Briefcase, 
+  Target, 
+  Bot, 
+  User, 
+  ShieldAlert 
+} from 'lucide-react';
 
 import Auth from './components/Auth';
 import GPAWidget from './components/GPAWidget';
@@ -15,17 +38,34 @@ import CalendarView from './components/CalendarView';
 import Toast from './components/Toast';
 import AIChatWidget from './components/AIChatWidget';
 
+// [MỚI] Import các component mới được tạo trong feature này
+import CertificatesSection from './components/CertificatesSection';
+import InternshipSection from './components/InternshipSection';
+import CareerGoalsSection from './components/CareerGoalsSection';
+import ProfileSection from './components/ProfileSection';
+import AdminSection from './components/AdminSection';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://localhost:5000'; // Địa chỉ máy chủ backend
 
 export default function App() {
+  // Lấy token và thông tin user từ localStorage (giữ người dùng đăng nhập sau khi tải lại trang)
   const [token, setToken] = useState(localStorage.getItem('student_planner_token') || null);
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('student_planner_user') || 'null'));
+  
+  // State các dữ liệu đã có sẵn
   const [subjects, setSubjects] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  
+  // [MỚI] State cho 5 module mới
+  const [certificates, setCertificates] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [interviews, setInterviews] = useState([]);
+  const [goals, setGoals] = useState([]);
+  const [skills, setSkills] = useState([]);
+  
   const [toasts, setToasts] = useState([]);
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' or 'calendar'
+  const [activeTab, setActiveTab] = useState('dashboard'); // Tab đang hiển thị
 
   // Toast Helpers
   const addToast = (message, type = 'info') => {
@@ -33,7 +73,13 @@ export default function App() {
     setToasts(prev => [...prev, { id, message, type }]);
 
     // Trigger confetti on high achievements!
-    if (type === 'success' && (message.includes('Xuất sắc') || message.includes('Giỏi') || message.includes('10.0') || message.includes('9.'))) {
+    if (type === 'success' && (
+      message.includes('Xuất sắc') || 
+      message.includes('Giỏi') || 
+      message.includes('10.0') || 
+      message.includes('9.') ||
+      message.includes('thành công')
+    )) {
       triggerConfetti();
     }
   };
@@ -44,14 +90,14 @@ export default function App() {
 
   const triggerConfetti = () => {
     confetti({
-      particleCount: 120,
-      spread: 80,
+      particleCount: 100,
+      spread: 70,
       origin: { y: 0.6 },
       colors: ['#6366f1', '#06b6d4', '#ec4899', '#10b981', '#f59e0b']
     });
   };
 
-  // Auth Handler
+  // Auth Handlers
   const handleAuthSuccess = (newToken, newUser) => {
     setToken(newToken);
     setUser(newUser);
@@ -65,7 +111,17 @@ export default function App() {
     setSubjects([]);
     setSchedules([]);
     setAssignments([]);
+    setCertificates([]);
+    setCompanies([]);
+    setInterviews([]);
+    setGoals([]);
+    setSkills([]);
+    setActiveTab('dashboard');
     addToast('Đã đăng xuất tài khoản thành công.', 'info');
+  };
+
+  const handleProfileUpdate = (updatedUser) => {
+    setUser(updatedUser);
   };
 
   // Fetch data
@@ -88,6 +144,27 @@ export default function App() {
       // Fetch assignments
       const resAssignments = await axios.get(`${API_URL}/api/assignments`, config);
       setAssignments(resAssignments.data);
+
+      // Fetch certificates
+      const resCerts = await axios.get(`${API_URL}/api/certificates`, config);
+      setCertificates(resCerts.data);
+
+      // Fetch companies
+      const resComps = await axios.get(`${API_URL}/api/companies`, config);
+      setCompanies(resComps.data);
+
+      // Fetch interviews
+      const resInterviews = await axios.get(`${API_URL}/api/interviews`, config);
+      setInterviews(resInterviews.data);
+
+      // Fetch career goals
+      const resGoals = await axios.get(`${API_URL}/api/goals`, config);
+      setGoals(resGoals.data);
+
+      // Fetch skills
+      const resSkills = await axios.get(`${API_URL}/api/skills`, config);
+      setSkills(resSkills.data);
+
     } catch (error) {
       console.error('Fetch data error:', error);
       if (error.response?.status === 401) {
@@ -102,7 +179,6 @@ export default function App() {
   // Initial fetch and fetch on token change
   useEffect(() => {
     if (token) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,123 +208,260 @@ export default function App() {
     );
   }
 
+  // Sidebar navigation menu options
+  const navItems = [
+    { id: 'dashboard', label: 'Bảng điều khiển', icon: <LayoutGrid size={18} /> },
+    { id: 'calendar', label: 'Lịch học tuần', icon: <Calendar size={18} /> },
+    { id: 'tasks', label: 'Công việc cá nhân', icon: <ListTodo size={18} /> },
+    { id: 'certificates', label: 'Chứng chỉ học thuật', icon: <Award size={18} /> },
+    { id: 'internships', label: 'Thực tập & Việc làm', icon: <Briefcase size={18} /> },
+    { id: 'goals', label: 'Mục tiêu & Kỹ năng', icon: <Target size={18} /> },
+    { id: 'ai-advisor', label: 'Trợ lý Nghề nghiệp AI', icon: <Bot size={18} /> },
+    { id: 'profile', label: 'Thông tin cá nhân', icon: <User size={18} /> },
+  ];
+
+  // Insert Admin panel if user is admin
+  if (user?.role === 'admin') {
+    navItems.push({ id: 'admin', label: 'Quản trị hệ thống', icon: <ShieldAlert size={18} /> });
+  }
+
   return (
-    <div className="app-container">
+    <div className="app-layout">
       
-      {/* Header Bar */}
-      <header className="dashboard-header">
-        <div className="logo-container">
-          <div className="auth-logo" style={{ width: '40px', height: '40px', marginBottom: 0, borderRadius: '10px' }}>
-            <BookOpen size={20} color="white" />
+      {/* Sidebar Navigation */}
+      <aside className="sidebar">
+        <div className="logo-container" style={{ padding: '1.5rem 1.25rem', borderBottom: '1px solid var(--border-color)' }}>
+          <div className="auth-logo" style={{ width: '36px', height: '36px', marginBottom: 0, borderRadius: '8px' }}>
+            <BookOpen size={18} color="white" />
           </div>
-          <span className="logo-text">Student Planner</span>
+          <span className="logo-text" style={{ fontSize: '1.2rem' }}>Student Planner</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+        {/* User Badge Info */}
+        <div className="user-profile-summary" style={{ padding: '1.25rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="user-avatar" style={{ width: '38px', height: '38px', fontSize: '0.95rem' }}>
+            {user?.username?.substring(0, 2).toUpperCase()}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.fullname || user?.username}
+            </span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+              {user?.role === 'admin' ? 'Administrator' : 'Student'}
+            </span>
+          </div>
+        </div>
+
+        {/* Nav list */}
+        <nav className="sidebar-nav" style={{ flex: 1, padding: '1rem 0.5rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`sidebar-nav-item ${activeTab === item.id ? 'active' : ''}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                width: '100%',
+                padding: '10px 14px',
+                border: 'none',
+                background: 'none',
+                borderRadius: '8px',
+                color: activeTab === item.id ? 'white' : 'var(--text-secondary)',
+                fontWeight: activeTab === item.id ? 600 : 500,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Logout Footer */}
+        <div style={{ padding: '1rem 0.75rem', borderTop: '1px solid var(--border-color)' }}>
+          <button
+            onClick={handleLogout}
+            className="sidebar-logout-btn"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '10px',
+              border: '1px solid var(--border-color)',
+              background: 'rgba(239, 68, 68, 0.05)',
+              borderRadius: '8px',
+              color: '#f87171',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <LogOut size={16} />
+            <span>Đăng xuất</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Pane */}
+      <div className="main-content">
+        <header className="content-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 2rem', borderBottom: '1px solid var(--border-color)' }}>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, textTransform: 'capitalize', color: 'white' }}>
+            {navItems.find(n => n.id === activeTab)?.label}
+          </h2>
           
-          {/* Tab Selection Switches */}
-          <div className="schedule-view-selector" style={{ marginBottom: 0 }}>
-            <button 
-              className={`schedule-view-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setActiveTab('dashboard')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <LayoutGrid size={16} />
-              <span>Bảng Điều Khiển</span>
-            </button>
-            <button 
-              className={`schedule-view-btn ${activeTab === 'calendar' ? 'active' : ''}`}
-              onClick={() => setActiveTab('calendar')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Calendar size={16} />
-              <span>Lịch Tuần Lớp Học</span>
-            </button>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Học kỳ hiện tại • {new Date().toLocaleDateString('vi-VN', { year: 'numeric', month: 'long' })}
           </div>
+        </header>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div className="user-badge">
-              <div className="user-avatar">
-                {user?.username?.substring(0, 2).toUpperCase()}
+        <div className="content-body" style={{ padding: '2rem', overflowY: 'auto', flex: 1 }}>
+          
+          {/* Dashboard Screen */}
+          {activeTab === 'dashboard' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <ReminderBanner 
+                schedules={schedules} 
+                assignments={assignments} 
+                subjects={subjects} 
+              />
+              
+              <div className="dashboard-grid">
+                {/* Left Column: GPA Widget & Subject manager */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <GPAWidget subjects={subjects} />
+                  <SubjectSection 
+                    subjects={subjects} 
+                    onSubjectChange={fetchData} 
+                    addToast={addToast} 
+                    API_URL={API_URL} 
+                    token={token} 
+                  />
+                </div>
+
+                {/* Right Column: Schedule manager */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <ScheduleSection 
+                    schedules={schedules} 
+                    subjects={subjects}
+                    onScheduleChange={fetchData} 
+                    addToast={addToast} 
+                    API_URL={API_URL} 
+                    token={token} 
+                  />
+                </div>
               </div>
-              <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{user?.username}</span>
-            </div>
 
-            <button 
-              onClick={handleLogout}
-              className="btn btn-secondary" 
-              style={{ padding: '8px 12px', width: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
-              title="Đăng xuất"
-            >
-              <LogOut size={16} />
-              <span style={{ fontSize: '0.85rem' }}>Đăng xuất</span>
-            </button>
-          </div>
+              {/* Statistics Widget */}
+              <StatisticsWidget subjects={subjects} assignments={assignments} />
+            </div>
+          )}
+
+          {/* Calendar Weekly Screen */}
+          {activeTab === 'calendar' && (
+            <div>
+              <CalendarView schedules={schedules} />
+            </div>
+          )}
+
+          {/* Personal Tasks Screen */}
+          {activeTab === 'tasks' && (
+            <div>
+              <AssignmentSection 
+                assignments={assignments}
+                subjects={subjects}
+                onAssignmentChange={fetchData}
+                addToast={addToast}
+                API_URL={API_URL}
+                token={token}
+              />
+            </div>
+          )}
+
+          {/* Certificates Screen */}
+          {activeTab === 'certificates' && (
+            <div>
+              <CertificatesSection 
+                certificates={certificates}
+                onCertificateChange={fetchData}
+                addToast={addToast}
+                API_URL={API_URL}
+                token={token}
+              />
+            </div>
+          )}
+
+          {/* Internships Screen */}
+          {activeTab === 'internships' && (
+            <div>
+              <InternshipSection 
+                companies={companies}
+                interviews={interviews}
+                onDataChange={fetchData}
+                addToast={addToast}
+                API_URL={API_URL}
+                token={token}
+              />
+            </div>
+          )}
+
+          {/* Goals and Skills Screen */}
+          {activeTab === 'goals' && (
+            <div>
+              <CareerGoalsSection 
+                goals={goals}
+                skills={skills}
+                onDataChange={fetchData}
+                addToast={addToast}
+                API_URL={API_URL}
+                token={token}
+              />
+            </div>
+          )}
+
+          {/* AI Advisor Chat Screen */}
+          {activeTab === 'ai-advisor' && (
+            <div>
+              <AIChatWidget 
+                token={token}
+                API_URL={API_URL}
+              />
+            </div>
+          )}
+
+          {/* Personal Profile Screen */}
+          {activeTab === 'profile' && (
+            <div>
+              <ProfileSection 
+                user={user}
+                token={token}
+                API_URL={API_URL}
+                onProfileUpdate={handleProfileUpdate}
+                addToast={addToast}
+              />
+            </div>
+          )}
+
+          {/* Admin Control Screen */}
+          {activeTab === 'admin' && user?.role === 'admin' && (
+            <div>
+              <AdminSection 
+                token={token}
+                API_URL={API_URL}
+                addToast={addToast}
+              />
+            </div>
+          )}
 
         </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main>
-        {activeTab === 'dashboard' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
-            
-            {/* Intelligent Reminder Banner */}
-            <ReminderBanner 
-              schedules={schedules} 
-              assignments={assignments} 
-              subjects={subjects} 
-            />
-
-            {/* Dashboard Grid */}
-            <div className="dashboard-grid">
-              
-              {/* Left Column: GPA Widget & Subject manager */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <GPAWidget subjects={subjects} />
-                <SubjectSection 
-                  subjects={subjects} 
-                  onSubjectChange={fetchData} 
-                  addToast={addToast} 
-                  API_URL={API_URL} 
-                  token={token} 
-                />
-              </div>
-
-              {/* Right Column: Schedule manager & Coursework tasks */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <ScheduleSection 
-                  schedules={schedules} 
-                  subjects={subjects}
-                  onScheduleChange={fetchData} 
-                  addToast={addToast} 
-                  API_URL={API_URL} 
-                  token={token} 
-                />
-                
-                <AssignmentSection 
-                  assignments={assignments}
-                  subjects={subjects}
-                  onAssignmentChange={fetchData}
-                  addToast={addToast}
-                  API_URL={API_URL}
-                  token={token}
-                />
-              </div>
-
-            </div>
-
-            {/* Visual Statistics Widget (Full width at bottom of dashboard) */}
-            <StatisticsWidget subjects={subjects} assignments={assignments} />
-
-          </div>
-        ) : (
-          /* Full Width Google Calendar Tab */
-          <div style={{ marginTop: '1.5rem' }}>
-            <CalendarView schedules={schedules} />
-          </div>
-        )}
-      </main>
+      </div>
 
       {/* Toast Notifications Container */}
       <div className="toast-container">
@@ -261,14 +474,6 @@ export default function App() {
           />
         ))}
       </div>
-
-      {/* AI Chat Assistant Widget */}
-      <AIChatWidget 
-        token={token} 
-        subjects={subjects} 
-        schedules={schedules} 
-        API_URL={API_URL} 
-      />
 
     </div>
   );

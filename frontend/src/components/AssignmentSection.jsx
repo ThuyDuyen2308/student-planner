@@ -397,7 +397,7 @@ export default function AssignmentSection({
 
                     <div className="assignment-details" style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span className="assignment-title" style={{ textDecoration: assign.status === 'completed' ? 'line-through' : 'none', color: assign.status === 'completed' ? 'var(--text-muted)' : 'var(--text-color)' }}>
+                        <span className="assignment-title" style={{ textDecoration: assign.status === 'completed' ? 'line-through' : 'none', color: assign.status === 'completed' ? 'var(--text-muted)' : 'var(--text-primary)' }}>
                           {assign.title}
                         </span>
                         {assign.subject_name && (

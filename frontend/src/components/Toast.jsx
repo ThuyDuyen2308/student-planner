@@ -15,6 +15,8 @@ export default function Toast({ message, type, onClose }) {
         return <CheckCircle style={{ color: 'var(--success)' }} size={20} />;
       case 'error':
         return <AlertTriangle style={{ color: 'var(--danger)' }} size={20} />;
+      case 'warning':
+        return <AlertTriangle style={{ color: 'var(--warning)' }} size={20} />;
       default:
         return <Info style={{ color: 'var(--primary)' }} size={20} />;
     }

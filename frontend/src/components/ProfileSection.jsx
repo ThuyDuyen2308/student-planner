@@ -83,6 +83,16 @@ export default function ProfileSection({ user, token, API_URL, onProfileUpdate, 
           <span>Thông tin cá nhân</span>
         </h3>
 
+        <div className="profile-avatar-large">
+          {user?.username?.substring(0, 2).toUpperCase()}
+        </div>
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <h4 style={{ margin: 0, fontSize: '1.2rem', color: 'white', fontWeight: 700 }}>{fullname || user?.username}</h4>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
+            {user?.role === 'admin' ? 'Quản trị viên hệ thống' : 'Tài khoản Sinh viên'}
+          </span>
+        </div>
+
         <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Tên tài khoản (Không thể đổi)</label>

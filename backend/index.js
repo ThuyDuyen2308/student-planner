@@ -228,30 +228,22 @@ app.post('/api/subjects', authMiddleware, async (req, res) => {
 
   const subjectStatus = status || 'completed';
 
-  if (!name || credit === undefined) {
-    return res.status(400).json({ message: 'Name and credit are required.' });
+  if (!name) {
+    return res.status(400).json({ message: 'Name is required.' });
   }
 
-  const parsedCredit = parseInt(credit, 10);
+  // Default credit to 1 if not provided
+  const creditValue = credit !== undefined && credit !== null && credit !== '' ? credit : 1;
+  const parsedCredit = parseInt(creditValue, 10);
   if (isNaN(parsedCredit) || parsedCredit <= 0) {
     return res.status(400).json({ message: 'Credit must be a positive integer.' });
   }
 
   let parsedScore = null;
-  if (subjectStatus === 'completed') {
-    if (score === undefined || score === null || score === '') {
-      return res.status(400).json({ message: 'Score is required for completed subjects.' });
-    }
+  if (score !== undefined && score !== null && score !== '') {
     parsedScore = parseFloat(score);
     if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
       return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
-    }
-  } else {
-    if (score !== undefined && score !== null && score !== '') {
-      parsedScore = parseFloat(score);
-      if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-        return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
-      }
     }
   }
 
@@ -283,30 +275,22 @@ app.put('/api/subjects/:id', authMiddleware, async (req, res) => {
 
   const subjectStatus = status || 'completed';
 
-  if (!name || credit === undefined) {
-    return res.status(400).json({ message: 'Name and credit are required.' });
+  if (!name) {
+    return res.status(400).json({ message: 'Name is required.' });
   }
 
-  const parsedCredit = parseInt(credit, 10);
+  // Default credit to 1 if not provided
+  const creditValue = credit !== undefined && credit !== null && credit !== '' ? credit : 1;
+  const parsedCredit = parseInt(creditValue, 10);
   if (isNaN(parsedCredit) || parsedCredit <= 0) {
     return res.status(400).json({ message: 'Credit must be a positive integer.' });
   }
 
   let parsedScore = null;
-  if (subjectStatus === 'completed') {
-    if (score === undefined || score === null || score === '') {
-      return res.status(400).json({ message: 'Score is required for completed subjects.' });
-    }
+  if (score !== undefined && score !== null && score !== '') {
     parsedScore = parseFloat(score);
     if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
       return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
-    }
-  } else {
-    if (score !== undefined && score !== null && score !== '') {
-      parsedScore = parseFloat(score);
-      if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-        return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
-      }
     }
   }
 

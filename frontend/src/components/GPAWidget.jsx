@@ -35,6 +35,7 @@ export default function GPAWidget({ subjects }) {
   const gradedSubjects = subjects.filter(sub => sub.status === 'completed' && sub.score !== null && sub.score !== undefined);
   const gradedCredits = gradedSubjects.reduce((sum, sub) => sum + sub.credit, 0);
   const studyingSubjectsCount = subjects.filter(sub => sub.status === 'studying').length;
+  const completedSubjectsCount = subjects.filter(sub => sub.status === 'completed').length;
 
   // 1. GPA system 10 (Weighted average score)
   const weightedScoreSum10 = gradedSubjects.reduce((sum, sub) => sum + (parseFloat(sub.score) * sub.credit), 0);
@@ -66,10 +67,15 @@ export default function GPAWidget({ subjects }) {
     }
   }
 
-  // SVG Progress Ring calculations (using GPA 4.0 for progress circle)
+  // SVG Progress Ring calculations
   const radius = 36;
   const circumference = 2 * Math.PI * radius;
-  const progressPercent = Math.min(Math.max(gpa4 / 4.0, 0), 1);
+  
+  // Choose between GPA progress or simple Subject completion progress
+  const hasGrades = gradedCredits > 0;
+  const progressPercent = hasGrades 
+    ? Math.min(Math.max(gpa4 / 4.0, 0), 1) 
+    : (subjects.length > 0 ? completedSubjectsCount / subjects.length : 0);
   const strokeDashoffset = circumference - progressPercent * circumference;
 
   return (
@@ -98,20 +104,38 @@ export default function GPAWidget({ subjects }) {
               strokeDashoffset={strokeDashoffset}
             />
           </svg>
-          <span className="gpa-ring-value" style={{ fontSize: '1.3rem' }}>{gpa4.toFixed(2)}</span>
+          <span className="gpa-ring-value" style={{ fontSize: hasGrades ? '1.3rem' : '1.1rem' }}>
+            {hasGrades ? gpa4.toFixed(2) : `${Math.round(progressPercent * 100)}%`}
+          </span>
         </div>
 
         <div className="gpa-stats" style={{ flex: 1 }}>
-          <span className="gpa-title">Điểm trung bình học tập</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', margin: '4px 0' }}>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>Hệ 4: {gpa4.toFixed(2)}</span>
-            <span className={`subject-score-badge ${classClass}`} style={{ padding: '2px 8px', fontSize: '0.75rem' }}>
-              {classification}
-            </span>
-          </div>
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
-            Hệ 10: {gpa10.toFixed(2)} / 10
-          </span>
+          <span className="gpa-title">{hasGrades ? 'Điểm trung bình học tập' : 'Tiến độ hoàn thành môn học'}</span>
+          {hasGrades ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', margin: '4px 0' }}>
+                <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>Hệ 4: {gpa4.toFixed(2)}</span>
+                <span className={`subject-score-badge ${classClass}`} style={{ padding: '2px 8px', fontSize: '0.75rem' }}>
+                  {classification}
+                </span>
+              </div>
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                Hệ 10: {gpa10.toFixed(2)} / 10
+              </span>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', margin: '4px 0' }}>
+                <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>{completedSubjectsCount} / {subjects.length} môn</span>
+                <span className="subject-score-badge score-good" style={{ padding: '2px 8px', fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.12)', color: 'var(--success)' }}>
+                  Hoàn thành
+                </span>
+              </div>
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                Đang học: {studyingSubjectsCount} môn học kì này
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -120,10 +144,10 @@ export default function GPAWidget({ subjects }) {
           Môn học: <strong>{subjects.length}</strong> {studyingSubjectsCount > 0 && `(${studyingSubjectsCount} đang học)`}
         </span>
         <span style={{ color: 'var(--text-muted)' }}>
-          Tín chỉ: <strong>{gradedCredits}</strong>/{totalCredits}
+          Đã hoàn thành: <strong>{completedSubjectsCount}</strong> môn
         </span>
         <span style={{ color: 'var(--text-muted)' }}>
-          Quy đổi: <strong>{gradedCredits > 0 ? getLetterGrade(gpa10) : '-'}</strong>
+          Trạng thái: <strong>{subjects.length > 0 ? (completedSubjectsCount === subjects.length ? 'Hoàn tất 🎉' : 'Đang thực hiện') : 'Trống'}</strong>
         </span>
       </div>
     </div>

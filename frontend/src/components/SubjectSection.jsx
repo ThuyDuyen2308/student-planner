@@ -4,8 +4,6 @@ import { Search, Plus, Trash2, Edit2, Check, X, AlertTriangle, BookOpen } from '
 
 export default function SubjectSection({ subjects, onSubjectChange, addToast, API_URL, token }) {
   const [name, setName] = useState('');
-  const [credit, setCredit] = useState('');
-  const [score, setScore] = useState('');
   const [status, setStatus] = useState('completed');
   const [editingSubject, setEditingSubject] = useState(null);
   
@@ -20,60 +18,45 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
     headers: { Authorization: `Bearer ${token}` }
   };
 
-  const getScoreClass = (sc) => {
-    if (sc === null || sc === undefined) return '';
-    const numScore = parseFloat(sc);
-    if (numScore >= 8.5) return 'score-excellent';
-    if (numScore >= 6.5) return 'score-good';
-    if (numScore >= 5.0) return 'score-average';
-    return 'score-fail';
-  };
-
   const handleEdit = (sub) => {
     setEditingSubject(sub);
     setName(sub.name);
-    setCredit(sub.credit);
-    setScore(sub.score !== null && sub.score !== undefined ? sub.score : '');
     setStatus(sub.status || 'completed');
   };
 
   const handleCancelEdit = () => {
     setEditingSubject(null);
     setName('');
-    setCredit('');
-    setScore('');
     setStatus('completed');
+  };
+
+  const handleToggleStatus = async (sub) => {
+    const nextStatus = sub.status === 'completed' ? 'studying' : 'completed';
+    try {
+      await axios.put(
+        `${API_URL}/api/subjects/${sub.id}`,
+        { 
+          name: sub.name, 
+          credit: sub.credit || 1, 
+          score: null, 
+          status: nextStatus 
+        },
+        axiosConfig
+      );
+      addToast(`Đã chuyển trạng thái môn "${sub.name}" thành công!`, 'success');
+      onSubjectChange();
+    } catch (error) {
+      console.error('Toggle status error:', error);
+      addToast('Không thể thay đổi trạng thái môn học.', 'error');
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!name.trim() || !credit || (status === 'completed' && (score === '' || score === null))) {
-      addToast('Vui lòng điền đầy đủ các thông tin môn học!', 'error');
+    if (!name.trim()) {
+      addToast('Vui lòng nhập tên môn học!', 'error');
       return;
-    }
-
-    const parsedCredit = parseInt(credit, 10);
-    if (isNaN(parsedCredit) || parsedCredit <= 0) {
-      addToast('Số tín chỉ phải là một số nguyên dương!', 'error');
-      return;
-    }
-
-    let parsedScore = null;
-    if (status === 'completed') {
-      parsedScore = parseFloat(score);
-      if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-        addToast('Điểm số phải từ 0 đến 10!', 'error');
-        return;
-      }
-    } else {
-      if (score !== '' && score !== null && score !== undefined) {
-        parsedScore = parseFloat(score);
-        if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-          addToast('Điểm số phải từ 0 đến 10!', 'error');
-          return;
-        }
-      }
     }
 
     try {
@@ -81,7 +64,12 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
         // Edit API PUT /api/subjects/:id
         await axios.put(
           `${API_URL}/api/subjects/${editingSubject.id}`, 
-          { name: name.trim(), credit: parsedCredit, score: parsedScore, status },
+          { 
+            name: name.trim(), 
+            credit: editingSubject.credit || 1, 
+            score: null, 
+            status 
+          },
           axiosConfig
         );
         addToast(`Đã sửa môn "${name}" thành công!`, 'success');
@@ -91,13 +79,16 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
         // Add API POST /api/subjects
         await axios.post(
           `${API_URL}/api/subjects`,
-          { name: name.trim(), credit: parsedCredit, score: parsedScore, status },
+          { 
+            name: name.trim(), 
+            credit: 1, 
+            score: null, 
+            status 
+          },
           axiosConfig
         );
         addToast(`Đã thêm môn học "${name}" thành công!`, 'success');
         setName('');
-        setCredit('');
-        setScore('');
         setStatus('completed');
         onSubjectChange();
       }
@@ -162,7 +153,7 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
             />
           </div>
 
-          <div className="form-group" style={{ marginBottom: '1rem' }}>
+          <div className="form-group" style={{ marginBottom: '1.25rem' }}>
             <label className="form-label">Trạng thái học tập</label>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
@@ -181,40 +172,6 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
               >
                 Đang học
               </button>
-            </div>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label" htmlFor="subj-credit">Số tín chỉ</label>
-              <input 
-                id="subj-credit"
-                type="number"
-                min="1"
-                max="10"
-                className="form-input"
-                placeholder="Số tín..."
-                value={credit}
-                onChange={(e) => setCredit(e.target.value)}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="subj-score">
-                Điểm số {status === 'completed' ? '(0-10)' : '(Chưa có - tùy chọn)'}
-              </label>
-              <input 
-                id="subj-score"
-                type="number"
-                step="0.1"
-                min="0"
-                max="10"
-                className="form-input"
-                placeholder="Điểm số..."
-                value={score}
-                onChange={(e) => setScore(e.target.value)}
-                required={status === 'completed'}
-              />
             </div>
           </div>
 
@@ -302,30 +259,25 @@ export default function SubjectSection({ subjects, onSubjectChange, addToast, AP
                 <div className="subject-info">
                   <span className="subject-name">{sub.name}</span>
                   <div className="subject-metadata" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-                    <span>Tín chỉ: <strong>{sub.credit}</strong></span>
-                    <span>•</span>
                     <span 
+                      onClick={() => handleToggleStatus(sub)}
                       className={`subject-score-badge ${sub.status === 'studying' ? 'score-good' : 'score-excellent'}`} 
                       style={{ 
-                        padding: '1px 6px', 
+                        padding: '2px 8px', 
                         fontSize: '0.7rem', 
                         background: sub.status === 'studying' ? 'rgba(6, 182, 212, 0.12)' : 'rgba(16, 185, 129, 0.12)',
-                        color: sub.status === 'studying' ? 'var(--secondary)' : 'var(--success)'
+                        color: sub.status === 'studying' ? 'var(--secondary)' : 'var(--success)',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'all 0.2s ease',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
                       }}
+                      title="Bấm để đổi nhanh trạng thái"
                     >
-                      {sub.status === 'studying' ? 'Đang học' : 'Hoàn thành'}
+                      {sub.status === 'studying' ? 'Đang học' : 'Đã hoàn thành'}
                     </span>
-                    {sub.status !== 'studying' && sub.score !== null && (
-                      <>
-                        <span>•</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          Điểm: 
-                          <strong className={getScoreClass(sub.score)} style={{ fontSize: '0.9rem' }}>
-                            {Number(sub.score).toFixed(1)}
-                          </strong>
-                        </span>
-                      </>
-                    )}
                   </div>
                 </div>
 

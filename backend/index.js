@@ -1,30 +1,12 @@
-/**
- * index.js - Máy chủ Express chính của ứng dụng Student Planner
- * ----------------------------------------------------------------
- * THAY ĐỔI CHÍNH (feature/dashboard-redesign):
- *   1. [XÁC THỰC] Cập nhật Register/Login hỗ trợ fullname, email, role;
- *      kiểm tra is_blocked trước khi đăng nhập.
- *   2. [MỚI] API cập nhật hồ sơ cá nhân: PUT /api/auth/profile
- *   3. [MỚI] API đổi mật khẩu: PUT /api/auth/change-password
- *   4. [MỚI] CRUD chứng chỉ: /api/certificates
- *   5. [MỚI] CRUD công ty ứng tuyển: /api/companies
- *   6. [MỚI] CRUD lịch phỏng vấn: /api/interviews
- *   7. [MỚI] CRUD mục tiêu nghề nghiệp: /api/goals
- *   8. [MỚI] CRUD kỹ năng: /api/skills
- *   9. [MỚI] API quản trị: /api/admin/* (yêu cầu role=admin)
- *  10. [CẬP NHẬT] AI Career Advisor: /api/chat tích hợp dữ liệu cá nhân
- *      hóa và dự phòng tự tạo báo cáo khi thiếu GEMINI_API_KEY.
- */
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// Kết nối cơ sở dữ liệu và các middleware xác thực
 const { initializeDatabase, query } = require('./db');
 const authMiddleware = require('./middleware/auth');
-const adminMiddleware = require('./middleware/admin'); // [MỚI] Middleware kiểm tra quyền admin
+const { getLocalRoadmap, callGemini } = require('./careerAdvisor');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -46,7 +28,7 @@ app.use((req, res, next) => {
 
 // Register a new user
 app.post('/api/auth/register', async (req, res) => {
-  const { username, password, fullname, email } = req.body;
+  const { username, password } = req.body;
 
   if (!username || !password) {
     return res.status(400).json({ message: 'Username and password are required.' });
@@ -62,20 +44,20 @@ app.post('/api/auth/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // If username is 'admin', automatically assign the admin role
-    const role = username.toLowerCase() === 'admin' ? 'admin' : 'user';
-
     // Insert user
     const result = await query(
-      'INSERT INTO users (username, password, fullname, email, role, is_blocked) VALUES (?, ?, ?, ?, ?, ?)',
-      [username.trim(), hashedPassword, fullname ? fullname.trim() : null, email ? email.trim() : null, role, 0]
+      'INSERT INTO users (username, password) VALUES (?, ?)',
+      [username, hashedPassword]
     );
 
     const userId = result.insertId;
 
+    // Generate JWT token
+    const token = jwt.sign({ id: userId, username }, JWT_SECRET, { expiresIn: '7d' });
+
     res.status(201).json({
-      message: 'Đăng ký tài khoản thành công! Vui lòng đăng nhập.',
-      user: { id: userId, username, role }
+      token,
+      user: { id: userId, username }
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -100,11 +82,6 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = users[0];
 
-    // Check block status
-    if (user.is_blocked) {
-      return res.status(403).json({ message: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin.' });
-    }
-
     // Verify password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -112,11 +89,11 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Generate token
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, role: user.role, fullname: user.fullname, email: user.email }
+      user: { id: user.id, username: user.username }
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -127,7 +104,7 @@ app.post('/api/auth/login', async (req, res) => {
 // Get current user profile
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
   try {
-    const users = await query('SELECT id, username, fullname, email, role, is_blocked, created_at FROM users WHERE id = ?', [req.user.id]);
+    const users = await query('SELECT id, username, fullname, email, major, desired_career, language_proficiency, career_roadmap, created_at FROM users WHERE id = ?', [req.user.id]);
     if (users.length === 0) {
       return res.status(404).json({ message: 'User not found.' });
     }
@@ -138,40 +115,41 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
-// Update personal profile
+// Update user profile info
 app.put('/api/auth/profile', authMiddleware, async (req, res) => {
-  const { fullname, email } = req.body;
+  const { fullname, email, major, desired_career, language_proficiency } = req.body;
   const userId = req.user.id;
 
   try {
     await query(
-      'UPDATE users SET fullname = ?, email = ? WHERE id = ?',
-      [fullname ? fullname.trim() : null, email ? email.trim() : null, userId]
+      'UPDATE users SET fullname = ?, email = ?, major = ?, desired_career = ?, language_proficiency = ? WHERE id = ?',
+      [
+        fullname ? fullname.trim() : null,
+        email ? email.trim() : null,
+        major ? major.trim() : null,
+        desired_career ? desired_career.trim() : null,
+        language_proficiency ? language_proficiency.trim() : null,
+        userId
+      ]
     );
-
-    const updatedUsers = await query('SELECT id, username, fullname, email, role FROM users WHERE id = ?', [userId]);
-
-    res.json({
-      message: 'Cập nhật thông tin cá nhân thành công.',
-      user: updatedUsers[0]
-    });
+    res.json({ message: 'Profile updated successfully.' });
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({ message: 'Internal server error while updating profile.' });
+    res.status(500).json({ message: 'Failed to update profile.' });
   }
 });
 
-// Change Password
+// Change password
 app.put('/api/auth/change-password', authMiddleware, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const userId = req.user.id;
 
   if (!currentPassword || !newPassword) {
-    return res.status(400).json({ message: 'Mật khẩu hiện tại và mật khẩu mới là bắt buộc.' });
+    return res.status(400).json({ message: 'Current and new passwords are required.' });
   }
 
   try {
-    const users = await query('SELECT * FROM users WHERE id = ?', [userId]);
+    const users = await query('SELECT password FROM users WHERE id = ?', [userId]);
     if (users.length === 0) {
       return res.status(404).json({ message: 'User not found.' });
     }
@@ -184,11 +162,640 @@ app.put('/api/auth/change-password', authMiddleware, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
-
-    res.json({ message: 'Đổi mật khẩu thành công.' });
+    res.json({ message: 'Đổi mật khẩu thành công!' });
   } catch (error) {
     console.error('Change password error:', error);
-    res.status(500).json({ message: 'Internal server error while changing password.' });
+    res.status(500).json({ message: 'Failed to change password.' });
+  }
+});
+
+// ==========================================
+// ASSIGNMENTS CRUD ENDPOINTS (Protected)
+// ==========================================
+
+// Get all assignments
+app.get('/api/assignments', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const assignments = await query(
+      'SELECT a.*, s.name AS subject_name FROM assignments a LEFT JOIN subjects s ON a.subject_id = s.id WHERE a.user_id = ? ORDER BY a.deadline ASC',
+      [userId]
+    );
+    res.json(assignments);
+  } catch (error) {
+    console.error('Get assignments error:', error);
+    res.status(500).json({ message: 'Failed to retrieve assignments.' });
+  }
+});
+
+// Add an assignment
+app.post('/api/assignments', authMiddleware, async (req, res) => {
+  const { title, description, deadline, subject_id } = req.body;
+  const userId = req.user.id;
+
+  if (!title || !deadline) {
+    return res.status(400).json({ message: 'Title and deadline are required.' });
+  }
+
+  try {
+    const result = await query(
+      'INSERT INTO assignments (user_id, subject_id, title, description, deadline) VALUES (?, ?, ?, ?, ?)',
+      [userId, subject_id || null, title.trim(), description ? description.trim() : null, deadline]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Assignment added.' });
+  } catch (error) {
+    console.error('Add assignment error:', error);
+    res.status(500).json({ message: 'Failed to add assignment.' });
+  }
+});
+
+// Update assignment
+app.put('/api/assignments/:id', authMiddleware, async (req, res) => {
+  const assignId = req.params.id;
+  const { title, description, deadline, subject_id, status } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE assignments SET title = ?, description = ?, deadline = ?, subject_id = ?, status = ? WHERE id = ? AND user_id = ?',
+      [title.trim(), description ? description.trim() : null, deadline, subject_id || null, status || 'pending', assignId, userId]
+    );
+    res.json({ message: 'Assignment updated.' });
+  } catch (error) {
+    console.error('Update assignment error:', error);
+    res.status(500).json({ message: 'Failed to update assignment.' });
+  }
+});
+
+// Update status of assignment
+app.patch('/api/assignments/:id/status', authMiddleware, async (req, res) => {
+  const assignId = req.params.id;
+  const { status } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE assignments SET status = ? WHERE id = ? AND user_id = ?',
+      [status, assignId, userId]
+    );
+    res.json({ message: 'Assignment status updated.' });
+  } catch (error) {
+    console.error('Update assignment status error:', error);
+    res.status(500).json({ message: 'Failed to update status.' });
+  }
+});
+
+// Delete assignment
+app.delete('/api/assignments/:id', authMiddleware, async (req, res) => {
+  const assignId = req.params.id;
+  const userId = req.user.id;
+
+  try {
+    await query('DELETE FROM assignments WHERE id = ? AND user_id = ?', [assignId, userId]);
+    res.json({ message: 'Assignment deleted.' });
+  } catch (error) {
+    console.error('Delete assignment error:', error);
+    res.status(500).json({ message: 'Failed to delete assignment.' });
+  }
+});
+
+// ==========================================
+// CAREER GOALS & SKILLS CRUD ENDPOINTS (Protected)
+// ==========================================
+
+// GET goals
+app.get('/api/goals', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const goals = await query('SELECT * FROM career_goals WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+    res.json(goals);
+  } catch (error) {
+    console.error('Get goals error:', error);
+    res.status(500).json({ message: 'Failed to retrieve goals.' });
+  }
+});
+
+// POST goal
+app.post('/api/goals', authMiddleware, async (req, res) => {
+  const { title, progress, target_date, status } = req.body;
+  const userId = req.user.id;
+  if (!title) return res.status(400).json({ message: 'Title is required.' });
+
+  try {
+    const result = await query(
+      'INSERT INTO career_goals (user_id, title, progress, target_date, status) VALUES (?, ?, ?, ?, ?)',
+      [userId, title.trim(), progress || 0, target_date || null, status || 'in_progress']
+    );
+    res.status(201).json({ id: result.insertId, message: 'Goal created.' });
+  } catch (error) {
+    console.error('Add goal error:', error);
+    res.status(500).json({ message: 'Failed to add goal.' });
+  }
+});
+
+// PUT goal
+app.put('/api/goals/:id', authMiddleware, async (req, res) => {
+  const goalId = req.params.id;
+  const { title, progress, target_date, status } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE career_goals SET title = ?, progress = ?, target_date = ?, status = ? WHERE id = ? AND user_id = ?',
+      [title.trim(), progress || 0, target_date || null, status || 'in_progress', goalId, userId]
+    );
+    res.json({ message: 'Goal updated.' });
+  } catch (error) {
+    console.error('Update goal error:', error);
+    res.status(500).json({ message: 'Failed to update goal.' });
+  }
+});
+
+// DELETE goal
+app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
+  const goalId = req.params.id;
+  const userId = req.user.id;
+  try {
+    await query('DELETE FROM career_goals WHERE id = ? AND user_id = ?', [goalId, userId]);
+    res.json({ message: 'Goal deleted.' });
+  } catch (error) {
+    console.error('Delete goal error:', error);
+    res.status(500).json({ message: 'Failed to delete goal.' });
+  }
+});
+
+// GET skills
+app.get('/api/skills', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const skills = await query('SELECT * FROM skills WHERE user_id = ? ORDER BY proficiency DESC, name ASC', [userId]);
+    res.json(skills);
+  } catch (error) {
+    console.error('Get skills error:', error);
+    res.status(500).json({ message: 'Failed to retrieve skills.' });
+  }
+});
+
+// POST skill
+app.post('/api/skills', authMiddleware, async (req, res) => {
+  const { name, proficiency } = req.body;
+  const userId = req.user.id;
+  if (!name) return res.status(400).json({ message: 'Skill name is required.' });
+
+  try {
+    const result = await query(
+      'INSERT INTO skills (user_id, name, proficiency) VALUES (?, ?, ?)',
+      [userId, name.trim(), proficiency || 1]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Skill added.' });
+  } catch (error) {
+    console.error('Add skill error:', error);
+    res.status(500).json({ message: 'Failed to add skill.' });
+  }
+});
+
+// PUT skill
+app.put('/api/skills/:id', authMiddleware, async (req, res) => {
+  const skillId = req.params.id;
+  const { name, proficiency } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE skills SET name = ?, proficiency = ? WHERE id = ? AND user_id = ?',
+      [name.trim(), proficiency || 1, skillId, userId]
+    );
+    res.json({ message: 'Skill updated.' });
+  } catch (error) {
+    console.error('Update skill error:', error);
+    res.status(500).json({ message: 'Failed to update skill.' });
+  }
+});
+
+// DELETE skill
+app.delete('/api/skills/:id', authMiddleware, async (req, res) => {
+  const skillId = req.params.id;
+  const userId = req.user.id;
+  try {
+    await query('DELETE FROM skills WHERE id = ? AND user_id = ?', [skillId, userId]);
+    res.json({ message: 'Skill deleted.' });
+  } catch (error) {
+    console.error('Delete skill error:', error);
+    res.status(500).json({ message: 'Failed to delete skill.' });
+  }
+});
+
+// ==========================================
+// CERTIFICATES CRUD ENDPOINTS (Protected)
+// ==========================================
+
+// GET certificates
+app.get('/api/certificates', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const certificates = await query('SELECT * FROM certificates WHERE user_id = ? ORDER BY exam_date DESC, name ASC', [userId]);
+    res.json(certificates);
+  } catch (error) {
+    console.error('Get certificates error:', error);
+    res.status(500).json({ message: 'Failed to retrieve certificates.' });
+  }
+});
+
+// POST certificate
+app.post('/api/certificates', authMiddleware, async (req, res) => {
+  const { name, status, score, exam_date, expiry_date } = req.body;
+  const userId = req.user.id;
+  if (!name) return res.status(400).json({ message: 'Certificate name is required.' });
+
+  try {
+    const result = await query(
+      'INSERT INTO certificates (user_id, name, status, score, exam_date, expiry_date) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, name.trim(), status || 'studying', score || null, exam_date || null, expiry_date || null]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Certificate added.' });
+  } catch (error) {
+    console.error('Add certificate error:', error);
+    res.status(500).json({ message: 'Failed to add certificate.' });
+  }
+});
+
+// PUT certificate
+app.put('/api/certificates/:id', authMiddleware, async (req, res) => {
+  const certId = req.params.id;
+  const { name, status, score, exam_date, expiry_date } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE certificates SET name = ?, status = ?, score = ?, exam_date = ?, expiry_date = ? WHERE id = ? AND user_id = ?',
+      [name.trim(), status || 'studying', score || null, exam_date || null, expiry_date || null, certId, userId]
+    );
+    res.json({ message: 'Certificate updated.' });
+  } catch (error) {
+    console.error('Update certificate error:', error);
+    res.status(500).json({ message: 'Failed to update certificate.' });
+  }
+});
+
+// DELETE certificate
+app.delete('/api/certificates/:id', authMiddleware, async (req, res) => {
+  const certId = req.params.id;
+  const userId = req.user.id;
+  try {
+    await query('DELETE FROM certificates WHERE id = ? AND user_id = ?', [certId, userId]);
+    res.json({ message: 'Certificate deleted.' });
+  } catch (error) {
+    console.error('Delete certificate error:', error);
+    res.status(500).json({ message: 'Failed to delete certificate.' });
+  }
+});
+
+// ==========================================
+// INTERNSHIPS CRUD ENDPOINTS (Protected)
+// ==========================================
+
+// GET companies
+app.get('/api/companies', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const companies = await query('SELECT * FROM companies WHERE user_id = ? ORDER BY updated_at DESC', [userId]);
+    res.json(companies);
+  } catch (error) {
+    console.error('Get companies error:', error);
+    res.status(500).json({ message: 'Failed to retrieve companies.' });
+  }
+});
+
+// POST company
+app.post('/api/companies', authMiddleware, async (req, res) => {
+  const { name, position, status, note } = req.body;
+  const userId = req.user.id;
+  if (!name || !position) return res.status(400).json({ message: 'Company name and position are required.' });
+
+  try {
+    const result = await query(
+      'INSERT INTO companies (user_id, name, position, status, note) VALUES (?, ?, ?, ?, ?)',
+      [userId, name.trim(), position.trim(), status || 'not_applied', note || null]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Company added.' });
+  } catch (error) {
+    console.error('Add company error:', error);
+    res.status(500).json({ message: 'Failed to add company.' });
+  }
+});
+
+// PUT company
+app.put('/api/companies/:id', authMiddleware, async (req, res) => {
+  const companyId = req.params.id;
+  const { name, position, status, note } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE companies SET name = ?, position = ?, status = ?, note = ? WHERE id = ? AND user_id = ?',
+      [name.trim(), position.trim(), status || 'not_applied', note || null, companyId, userId]
+    );
+    res.json({ message: 'Company updated.' });
+  } catch (error) {
+    console.error('Update company error:', error);
+    res.status(500).json({ message: 'Failed to update company.' });
+  }
+});
+
+// DELETE company
+app.delete('/api/companies/:id', authMiddleware, async (req, res) => {
+  const companyId = req.params.id;
+  const userId = req.user.id;
+  try {
+    await query('DELETE FROM companies WHERE id = ? AND user_id = ?', [companyId, userId]);
+    res.json({ message: 'Company deleted.' });
+  } catch (error) {
+    console.error('Delete company error:', error);
+    res.status(500).json({ message: 'Failed to delete company.' });
+  }
+});
+
+// GET interviews
+app.get('/api/interviews', authMiddleware, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const interviews = await query(
+      'SELECT i.*, c.name AS company_name, c.position AS company_position FROM interviews i INNER JOIN companies c ON i.company_id = c.id WHERE i.user_id = ? ORDER BY i.interview_time ASC',
+      [userId]
+    );
+    res.json(interviews);
+  } catch (error) {
+    console.error('Get interviews error:', error);
+    res.status(500).json({ message: 'Failed to retrieve interviews.' });
+  }
+});
+
+// POST interview
+app.post('/api/interviews', authMiddleware, async (req, res) => {
+  const { company_id, interview_time, location, note } = req.body;
+  const userId = req.user.id;
+  if (!company_id || !interview_time) return res.status(400).json({ message: 'Company and interview time are required.' });
+
+  try {
+    const result = await query(
+      'INSERT INTO interviews (user_id, company_id, interview_time, location, note) VALUES (?, ?, ?, ?, ?)',
+      [userId, company_id, interview_time, location || null, note || null]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Interview scheduled.' });
+  } catch (error) {
+    console.error('Add interview error:', error);
+    res.status(500).json({ message: 'Failed to add interview.' });
+  }
+});
+
+// PUT interview
+app.put('/api/interviews/:id', authMiddleware, async (req, res) => {
+  const interviewId = req.params.id;
+  const { company_id, interview_time, location, note } = req.body;
+  const userId = req.user.id;
+
+  try {
+    await query(
+      'UPDATE interviews SET company_id = ?, interview_time = ?, location = ?, note = ? WHERE id = ? AND user_id = ?',
+      [company_id, interview_time, location || null, note || null, interviewId, userId]
+    );
+    res.json({ message: 'Interview updated.' });
+  } catch (error) {
+    console.error('Update interview error:', error);
+    res.status(500).json({ message: 'Failed to update interview.' });
+  }
+});
+
+// DELETE interview
+app.delete('/api/interviews/:id', authMiddleware, async (req, res) => {
+  const interviewId = req.params.id;
+  const userId = req.user.id;
+  try {
+    await query('DELETE FROM interviews WHERE id = ? AND user_id = ?', [interviewId, userId]);
+    res.json({ message: 'Interview deleted.' });
+  } catch (error) {
+    console.error('Delete interview error:', error);
+    res.status(500).json({ message: 'Failed to delete interview.' });
+  }
+});
+
+// ==========================================
+// AI ROADMAP & CHAT ADVISOR ENDPOINTS (Protected)
+// ==========================================
+
+// Generate AI Career Roadmap ("Hướng mới")
+app.post('/api/career/roadmap', authMiddleware, async (req, res) => {
+  const { major, desired_career, language_proficiency, skills } = req.body;
+  const userId = req.user.id;
+
+  try {
+    // 1. Fetch subjects to calculate GPA and summarize academic progress
+    const subjects = await query('SELECT name, credit, score, status FROM subjects WHERE user_id = ?', [userId]);
+    
+    // Calculate GPA
+    const completedSubjects = subjects.filter(s => s.status === 'completed' && s.score !== null);
+    let totalCredits = 0;
+    let weightedScoreSum = 0;
+    completedSubjects.forEach(s => {
+      totalCredits += s.credit;
+      weightedScoreSum += (parseFloat(s.score) * s.credit);
+    });
+    const gpa = totalCredits > 0 ? (weightedScoreSum / totalCredits).toFixed(2) : null;
+    const subjectsStr = subjects.map(s => `${s.name} (${s.credit} tín chỉ, điểm: ${s.score || 'N/A'}, trạng thái: ${s.status})`).join(', ');
+
+    // 2. Decide if we use Gemini API or Local Fallback
+    const hasGeminiKey = !!process.env.GEMINI_API_KEY;
+    let roadmapContent = '';
+    let parsedInfo = null;
+
+    if (hasGeminiKey) {
+      console.log('Gemini API key detected, generating career roadmap...');
+      const prompt = `
+Bạn là một chuyên gia tư vấn nghề nghiệp AI chuyên nghiệp dành cho sinh viên Việt Nam.
+Nhiệm vụ của bạn là phân tích thông tin định hướng nghề nghiệp của sinh viên và đưa ra một báo cáo tư vấn chi tiết, cụ thể, và có thể hành động được.
+
+Thông tin sinh viên cung cấp:
+- Ngành học: ${major || 'Công nghệ thông tin'}
+- Công việc mơ ước: ${desired_career || 'Software Developer'}
+- Kỹ năng hiện tại: ${skills || 'Chưa cập nhật'}
+- Trình độ ngoại ngữ: ${language_proficiency || 'Chưa cập nhật'}
+- Điểm học tập hiện tại (GPA): ${gpa || 'Chưa có điểm tích lũy'} (tính theo hệ 10)
+- Các môn học đã học: ${subjectsStr || 'Chưa lưu môn học nào'}
+
+Báo cáo của bạn phải viết bằng tiếng Việt, sử dụng định dạng Markdown chuyên nghiệp và đẹp mắt, bao gồm 4 phần chính sau:
+
+### 1. Phân tích định hướng & Đánh giá khoảng cách kỹ năng (Gap Analysis)
+- Đánh giá mức độ phù hợp giữa ngành học hiện tại và công việc mơ ước.
+- So sánh các kỹ năng hiện có với các yêu cầu thực tế của thị trường tuyển dụng đối với công việc mơ ước. Chỉ ra những kỹ năng quan trọng còn thiếu.
+
+### 2. Lộ trình phát triển chi tiết (Roadmap Timeline)
+- Chia lộ trình ra làm 4 giai đoạn cụ thể (mỗi giai đoạn tương ứng với khoảng 3-6 tháng học tập hoặc theo học kỳ).
+- Ở mỗi giai đoạn, chỉ rõ:
+  + Mục tiêu chính cần đạt được.
+  + Các kiến thức chuyên môn và kỹ năng thực tế cần học (ví dụ: học framework nào, công nghệ gì).
+  + Các dự án thực tế nên làm để bổ sung vào portfolio.
+
+### 3. Đề xuất kỹ năng & Chứng chỉ học thuật phù hợp
+- Đề xuất cụ thể danh sách 3-5 kỹ năng thực tiễn nhất cần học thêm (ví dụ: Git, React, Docker, SQL, UI/UX,...). Ghi rõ lý do tại sao kỹ năng này quan trọng đối với công việc mơ ước.
+- Đề xuất cụ thể 2-3 chứng chỉ phù hợp nhất (ví dụ: IELTS 6.5+, AWS Certified Cloud Practitioner, TOEFL, JLPT N3, ISTQB, Certified ScrumMaster,...) kèm thời điểm thích hợp trong lộ trình để thi.
+
+### 4. Kế hoạch chuẩn bị thực tập & Tìm việc (Internship & Placement Guide)
+- Hướng dẫn chuẩn bị CV/Resume, LinkedIn, portfolio cho vị trí công việc mơ ước.
+- Đề xuất các bước tìm kiếm cơ hội thực tập (Internship), cách thức tiếp cận doanh nghiệp.
+- Gợi ý 3 vị trí công việc hoặc loại hình doanh nghiệp phù hợp nhất để thực tập (ví dụ: Product Company, Outsource Agency, Startup...).
+
+Yêu cầu định dạng: Báo cáo trả về phải là một chuỗi Markdown hoàn chỉnh, sử dụng các thẻ tiêu đề (H3, H4), danh sách gạch đầu dòng, bảng biểu, các định dạng in đậm/in nghiêng một cách rõ ràng và thu hút thị giác.
+`;
+      try {
+        roadmapContent = await callGemini(prompt);
+      } catch (geminiError) {
+        console.error('Error calling Gemini API for roadmap, falling back to local templates:', geminiError);
+        parsedInfo = getLocalRoadmap(desired_career, major, skills, language_proficiency, gpa, subjectsStr);
+        roadmapContent = parsedInfo.markdown;
+      }
+    } else {
+      console.log('No Gemini API key in env. Using local career advisor templates.');
+      parsedInfo = getLocalRoadmap(desired_career, major, skills, language_proficiency, gpa, subjectsStr);
+      roadmapContent = parsedInfo.markdown;
+    }
+
+    // 3. Save to database
+    await query(
+      'UPDATE users SET major = ?, desired_career = ?, language_proficiency = ?, career_roadmap = ? WHERE id = ?',
+      [major || null, desired_career || null, language_proficiency || null, roadmapContent, userId]
+    );
+
+    // 4. Return results
+    res.json({
+      roadmap: roadmapContent,
+      suggestedSkills: parsedInfo ? parsedInfo.suggestedSkills : [],
+      suggestedCerts: parsedInfo ? parsedInfo.suggestedCerts : []
+    });
+
+  } catch (error) {
+    console.error('Generate roadmap error:', error);
+    res.status(500).json({ message: 'Failed to generate career roadmap.' });
+  }
+});
+
+// AI Career Advisor Chat
+app.post('/api/chat', authMiddleware, async (req, res) => {
+  const { message, history } = req.body;
+  const userId = req.user.id;
+
+  if (!message) {
+    return res.status(400).json({ message: 'Message is required.' });
+  }
+
+  try {
+    // 1. Gather student context from DB
+    const [user] = await query('SELECT major, desired_career, language_proficiency FROM users WHERE id = ?', [userId]);
+    const subjects = await query('SELECT name, credit, score, status FROM subjects WHERE user_id = ?', [userId]);
+    const skills = await query('SELECT name, proficiency FROM skills WHERE user_id = ?', [userId]);
+    const goals = await query('SELECT title, progress, status FROM career_goals WHERE user_id = ?', [userId]);
+    const certs = await query('SELECT name, status, score FROM certificates WHERE user_id = ?', [userId]);
+    const companies = await query('SELECT name, position, status FROM companies WHERE user_id = ?', [userId]);
+    const interviews = await query(
+      'SELECT i.interview_time, i.location, c.name AS company_name, c.position FROM interviews i INNER JOIN companies c ON i.company_id = c.id WHERE i.user_id = ?',
+      [userId]
+    );
+
+    // Calculate GPA
+    const completedSubjects = subjects.filter(s => s.status === 'completed' && s.score !== null);
+    let totalCredits = 0;
+    let weightedScoreSum = 0;
+    completedSubjects.forEach(s => {
+      totalCredits += s.credit;
+      weightedScoreSum += (parseFloat(s.score) * s.credit);
+    });
+    const gpa = totalCredits > 0 ? (weightedScoreSum / totalCredits).toFixed(2) : 'N/A';
+
+    // Compile Context Text
+    const contextText = `
+[BỐI CẢNH SINH VIÊN]
+- Chuyên ngành: ${user.major || 'Chưa cập nhật'}
+- Nghề nghiệp mơ ước: ${user.desired_career || 'Chưa cập nhật'}
+- Trình độ ngoại ngữ: ${user.language_proficiency || 'Chưa cập nhật'}
+- GPA hiện tại: ${gpa}
+- Danh sách môn học: ${subjects.map(s => `${s.name} (${s.credit} tín chỉ, Điểm: ${s.score || 'N/A'}, Trạng thái: ${s.status})`).join(', ') || 'Chưa có'}
+- Kỹ năng hiện có: ${skills.map(s => `${s.name} (${s.proficiency}/5 sao)`).join(', ') || 'Chưa có'}
+- Mục tiêu sự nghiệp: ${goals.map(g => `${g.title} (Tiến độ: ${g.progress}%, Trạng thái: ${g.status})`).join(', ') || 'Chưa có'}
+- Chứng chỉ học thuật: ${certs.map(c => `${c.name} (${c.status === 'obtained' ? 'Đã đạt' : 'Đang học'}, Điểm: ${c.score || 'N/A'})`).join(', ') || 'Chưa có'}
+- Thực tập & việc làm: ${companies.map(c => `${c.position} tại ${c.name} (Trạng thái: ${c.status})`).join(', ') || 'Chưa ứng tuyển'}
+- Lịch phỏng vấn sắp tới: ${interviews.map(i => `Phỏng vấn tại ${i.company_name} lúc ${new Date(i.interview_time).toLocaleString('vi-VN')} tại ${i.location || 'Online'}`).join(', ') || 'Không có'}
+`;
+
+    // 2. Decide if we call Gemini API or return mock chatbot advisor responses
+    const hasGeminiKey = !!process.env.GEMINI_API_KEY;
+
+    if (hasGeminiKey) {
+      // Build conversation system instruction & prompt
+      const systemInstruction = `
+Bạn là "Cố vấn Sự nghiệp AI" (AI Career Advisor) được tích hợp trong ứng dụng Student Planner của sinh viên.
+Nhiệm vụ của bạn là giải đáp các thắc mắc, đưa ra lời khuyên, định hướng học tập, thi chứng chỉ, viết CV, thực tập và xin việc dựa trên thông tin hồ sơ của sinh viên.
+Hãy luôn lịch sự, khuyến khích, chuyên nghiệp và trả lời bằng tiếng Việt. Sử dụng định dạng Markdown rõ ràng.
+
+Dưới đây là thông tin chi tiết về sinh viên này:
+${contextText}
+
+Lịch sử trò chuyện gần đây:
+${(history || []).map(h => `${h.sender === 'user' ? 'Sinh viên' : 'Cố vấn AI'}: ${h.text}`).join('\n')}
+
+Hãy trả lời câu hỏi hiện tại của sinh viên một cách trực tiếp, ngắn gọn và hữu ích.
+`;
+
+      const prompt = `${systemInstruction}\n\nSinh viên hỏi: ${message}\nCố vấn AI:`;
+      try {
+        const reply = await callGemini(prompt);
+        return res.json({ reply });
+      } catch (geminiError) {
+        console.error('Error calling Gemini API for chatbot, fallback to local reply:', geminiError);
+      }
+    }
+
+    // Local rule-based chatbot replies
+    const msg = message.toLowerCase();
+    let reply = "";
+
+    if (msg.includes('lộ trình') || msg.includes('career') || msg.includes('roadmap') || msg.includes('hướng đi')) {
+      reply = `Chào bạn! Tôi thấy chuyên ngành của bạn là **${user.major || 'Chưa cập nhật'}** và bạn mong muốn trở thành **${user.desired_career || 'Software Developer'}**. 
+Để xem lộ trình chi tiết từng bước, bạn hãy chuyển sang tab **"Hướng mới"** ở thanh điều hướng bên trái và bấm nút **"Phân tích & Tạo lộ trình"**. 
+Ở đó tôi sẽ phân tích chi tiết Gap Analysis, chia lộ trình thành 4 giai đoạn, gợi ý kỹ năng bổ sung và chứng chỉ cần thi cụ thể nhất cho bạn!`;
+    } else if (msg.includes('chứng chỉ') || msg.includes('bằng cấp') || msg.includes('tiếng anh') || msg.includes('ielts') || msg.includes('toeic')) {
+      reply = `Dựa trên định hướng **${user.desired_career || 'Software Developer'}** và trình độ ngoại ngữ **${user.language_proficiency || 'Chưa cập nhật'}** của bạn, tôi khuyên bạn nên tập trung vào các chứng chỉ sau:
+1. **Ngoại ngữ:** Nếu chưa đạt mục tiêu, hãy thi **IELTS 6.0+** hoặc **TOEIC 700+** vì đây là tấm vé thông hành vào các công ty đa quốc gia.
+2. **Chuyên môn:** 
+   - Với lập trình: Nên học thi **AWS Certified Cloud Practitioner** hoặc **Google Cloud Digital Leader**.
+   - Với kiểm thử: Chứng chỉ **ISTQB Foundation** là tiêu chuẩn vàng.
+   - Với quản lý: **Certified ScrumMaster (CSM)** hoặc **PSM I** rất tốt cho các vai trò quản trị.
+Bạn có thể theo dõi tiến độ thi chứng chỉ tại tab **"Chứng chỉ"** nhé!`;
+    } else if (msg.includes('kỹ năng') || msg.includes('học gì') || msg.includes('ngôn ngữ') || msg.includes('framework')) {
+      reply = `Chào bạn! Hiện tại bạn đang có các kỹ năng: *${skills.map(s => s.name).join(', ') || 'Chưa cập nhật'}*.
+Để phục vụ tốt nhất cho vai trò **${user.desired_career || 'Software Developer'}**, bạn nên bổ sung các kỹ năng sau:
+- **Kỹ năng chuyên môn:** Học sâu về Git, RESTful API, thiết kế database và viết Unit Tests.
+- **Kỹ năng mềm:** Rèn luyện thêm kỹ năng làm việc nhóm, tư duy giải quyết vấn đề và kỹ năng thuyết trình.
+Bạn có thể tự do thêm các kỹ năng cần học vào tab **"Mục tiêu & Kỹ năng"** để theo dõi hàng ngày!`;
+    } else if (msg.includes('thực tập') || msg.includes('xin việc') || msg.includes('cv') || msg.includes('phỏng vấn')) {
+      reply = `Để chuẩn bị tốt nhất cho quá trình thực tập vị trí **${user.desired_career || 'Software Developer'}**:
+1. **CV & Portfolio:** Hãy chuẩn bị một CV đẹp mắt (tập trung vào các dự án cá nhân và các kỹ năng chuyên môn).
+2. **Theo dõi tuyển dụng:** Bạn có thể thêm các công ty bạn muốn ứng tuyển vào tab **"Thực tập & Tìm việc"** để theo dõi trạng thái ứng tuyển (Đã nộp, Phỏng vấn, Nhận offer).
+3. **Phỏng vấn:** Hãy ôn tập kỹ các câu hỏi về thuật toán, SQL, OOP và kiến thức ngôn ngữ lập trình bạn sử dụng.
+${interviews.length > 0 ? `Chúc bạn tự tin trong buổi phỏng vấn sắp tới vào ngày ${new Date(interviews[0].interview_time).toLocaleDateString('vi-VN')} nhé!` : 'Bạn có thể lên lịch phỏng vấn thử tại tab Thực tập & Tìm việc để luyện tập.'}`;
+    } else {
+      reply = `Chào bạn! Tôi là Cố vấn Sự nghiệp AI của bạn. 
+Tôi đã đọc hồ sơ học tập của bạn (GPA: **${gpa}**, ngành: **${user.major || 'Chưa cập nhật'}**, đích đến: **${user.desired_career || 'Chưa cập nhật'}**).
+Bạn có thể hỏi tôi về:
+- Lộ trình phát triển sự nghiệp từng giai đoạn.
+- Đề xuất các chứng chỉ nghề nghiệp và ngoại ngữ phù hợp.
+- Kỹ năng cần bổ sung để thu hẹp khoảng cách tuyển dụng.
+- Lời khuyên chuẩn bị CV và phỏng vấn thực tập.
+Bạn muốn thảo luận về chủ đề nào trước?`;
+    }
+
+    res.json({ reply });
+  } catch (error) {
+    console.error('AIChat error:', error);
+    res.status(500).json({ message: 'Internal server error in AI chat.' });
   }
 });
 
@@ -196,7 +803,7 @@ app.put('/api/auth/change-password', authMiddleware, async (req, res) => {
 // 2. SUBJECTS CRUD ENDPOINTS (Protected)
 // ==========================================
 
-// Get all subjects
+// Get all subjects (optional: filter by name using search query)
 app.get('/api/subjects', authMiddleware, async (req, res) => {
   const search = req.query.search || '';
   const userId = req.user.id;
@@ -223,44 +830,39 @@ app.get('/api/subjects', authMiddleware, async (req, res) => {
 
 // Add a subject
 app.post('/api/subjects', authMiddleware, async (req, res) => {
-  const { name, credit, score, status } = req.body;
+  const { name, credit, score } = req.body;
   const userId = req.user.id;
 
-  const subjectStatus = status || 'completed';
-
-  if (!name) {
-    return res.status(400).json({ message: 'Name is required.' });
+  if (!name || credit === undefined || score === undefined) {
+    return res.status(400).json({ message: 'Name, credit, and score are required.' });
   }
 
-  // Default credit to 1 if not provided
-  const creditValue = credit !== undefined && credit !== null && credit !== '' ? credit : 1;
-  const parsedCredit = parseInt(creditValue, 10);
+  const parsedCredit = parseInt(credit, 10);
+  const parsedScore = parseFloat(score);
+
   if (isNaN(parsedCredit) || parsedCredit <= 0) {
     return res.status(400).json({ message: 'Credit must be a positive integer.' });
   }
 
-  let parsedScore = null;
-  if (score !== undefined && score !== null && score !== '') {
-    parsedScore = parseFloat(score);
-    if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-      return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
-    }
+  if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
+    return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
   }
 
   try {
     const result = await query(
-      'INSERT INTO subjects (user_id, name, credit, score, status) VALUES (?, ?, ?, ?, ?)',
-      [userId, name.trim(), parsedCredit, parsedScore, subjectStatus]
+      'INSERT INTO subjects (user_id, name, credit, score) VALUES (?, ?, ?, ?)',
+      [userId, name.trim(), parsedCredit, parsedScore]
     );
 
-    res.status(201).json({
+    const newSubject = {
       id: result.insertId,
       user_id: userId,
       name: name.trim(),
       credit: parsedCredit,
-      score: parsedScore,
-      status: subjectStatus
-    });
+      score: parsedScore
+    };
+
+    res.status(201).json(newSubject);
   } catch (error) {
     console.error('Add subject error:', error);
     res.status(500).json({ message: 'Failed to add subject.' });
@@ -269,29 +871,23 @@ app.post('/api/subjects', authMiddleware, async (req, res) => {
 
 // Update a subject
 app.put('/api/subjects/:id', authMiddleware, async (req, res) => {
-  const { name, credit, score, status } = req.body;
+  const { name, credit, score } = req.body;
   const subjectId = req.params.id;
   const userId = req.user.id;
 
-  const subjectStatus = status || 'completed';
-
-  if (!name) {
-    return res.status(400).json({ message: 'Name is required.' });
+  if (!name || credit === undefined || score === undefined) {
+    return res.status(400).json({ message: 'Name, credit, and score are required.' });
   }
 
-  // Default credit to 1 if not provided
-  const creditValue = credit !== undefined && credit !== null && credit !== '' ? credit : 1;
-  const parsedCredit = parseInt(creditValue, 10);
+  const parsedCredit = parseInt(credit, 10);
+  const parsedScore = parseFloat(score);
+
   if (isNaN(parsedCredit) || parsedCredit <= 0) {
     return res.status(400).json({ message: 'Credit must be a positive integer.' });
   }
 
-  let parsedScore = null;
-  if (score !== undefined && score !== null && score !== '') {
-    parsedScore = parseFloat(score);
-    if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-      return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
-    }
+  if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
+    return res.status(400).json({ message: 'Score must be a number between 0 and 10.' });
   }
 
   try {
@@ -302,8 +898,8 @@ app.put('/api/subjects/:id', authMiddleware, async (req, res) => {
     }
 
     await query(
-      'UPDATE subjects SET name = ?, credit = ?, score = ?, status = ? WHERE id = ? AND user_id = ?',
-      [name.trim(), parsedCredit, parsedScore, subjectStatus, subjectId, userId]
+      'UPDATE subjects SET name = ?, credit = ?, score = ? WHERE id = ? AND user_id = ?',
+      [name.trim(), parsedCredit, parsedScore, subjectId, userId]
     );
 
     res.json({
@@ -311,8 +907,7 @@ app.put('/api/subjects/:id', authMiddleware, async (req, res) => {
       user_id: userId,
       name: name.trim(),
       credit: parsedCredit,
-      score: parsedScore,
-      status: subjectStatus
+      score: parsedScore
     });
   } catch (error) {
     console.error('Update subject error:', error);
@@ -322,6 +917,8 @@ app.put('/api/subjects/:id', authMiddleware, async (req, res) => {
 
 // Delete a subject
 app.post('/api/subjects/delete/:id', authMiddleware, async (req, res) => {
+  // Use POST /api/subjects/delete/:id or DELETE /api/subjects/:id.
+  // We'll support both for robust client compatibility.
   const subjectId = req.params.id;
   const userId = req.user.id;
 
@@ -361,7 +958,7 @@ app.delete('/api/subjects/:id', authMiddleware, async (req, res) => {
 // 3. SCHEDULES ENDPOINTS (Protected, JOIN subjects)
 // ==========================================
 
-// Get all schedules
+// Get all schedules (with optional day_of_week filter)
 app.get('/api/schedules', authMiddleware, async (req, res) => {
   const { day } = req.query;
   const userId = req.user.id;
@@ -395,8 +992,8 @@ app.post('/api/schedules', authMiddleware, async (req, res) => {
   const { subject_id, day_of_week, start_time, end_time, room } = req.body;
   const userId = req.user.id;
 
-  if (!subject_id || !day_of_week || !start_time || !end_time || !room || !room.trim()) {
-    return res.status(400).json({ message: 'Subject, day of week, start time, end time, and room are required.' });
+  if (!subject_id || !day_of_week || !start_time || !end_time) {
+    return res.status(400).json({ message: 'Subject, day of week, start time, and end time are required.' });
   }
 
   try {
@@ -408,33 +1005,13 @@ app.post('/api/schedules', authMiddleware, async (req, res) => {
 
     const targetSubject = subjects[0];
 
-    // 2. Check for schedule conflict/overlap on the same day for this user
-    const conflictingSchedules = await query(`
-      SELECT s.*, sub.name AS subject_name 
-      FROM schedules s
-      INNER JOIN subjects sub ON s.subject_id = sub.id
-      WHERE s.user_id = ? 
-        AND s.day_of_week = ? 
-        AND s.start_time < ? 
-        AND s.end_time > ?
-    `, [userId, day_of_week, end_time, start_time]);
-
-    if (conflictingSchedules.length > 0) {
-      const conflict = conflictingSchedules[0];
-      const conflictStart = conflict.start_time.substring(0, 5);
-      const conflictEnd = conflict.end_time.substring(0, 5);
-      return res.status(400).json({ 
-        message: `Trùng lịch học! Đã có môn "${conflict.subject_name}" học từ ${conflictStart} đến ${conflictEnd} vào ngày này.` 
-      });
-    }
-
-    // 3. Insert schedule
+    // 2. Insert schedule
     const result = await query(
       'INSERT INTO schedules (user_id, subject_id, day_of_week, start_time, end_time, room) VALUES (?, ?, ?, ?, ?, ?)',
       [userId, subject_id, day_of_week, start_time, end_time, room ? room.trim() : null]
     );
 
-    res.status(201).json({
+    const newSchedule = {
       id: result.insertId,
       user_id: userId,
       subject_id,
@@ -445,7 +1022,9 @@ app.post('/api/schedules', authMiddleware, async (req, res) => {
       subject_name: targetSubject.name,
       subject_credit: targetSubject.credit,
       subject_score: targetSubject.score
-    });
+    };
+
+    res.status(201).json(newSchedule);
   } catch (error) {
     console.error('Add schedule error:', error);
     res.status(500).json({ message: 'Failed to add schedule.' });
@@ -468,999 +1047,6 @@ app.delete('/api/schedules/:id', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Delete schedule error:', error);
     res.status(500).json({ message: 'Failed to delete schedule.' });
-  }
-});
-
-// Update a schedule
-app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
-  const scheduleId = req.params.id;
-  const { subject_id, day_of_week, start_time, end_time, room } = req.body;
-  const userId = req.user.id;
-
-  if (!subject_id || !day_of_week || !start_time || !end_time || !room || !room.trim()) {
-    return res.status(400).json({ message: 'Subject, day of week, start time, end time, and room are required.' });
-  }
-
-  try {
-    // 1. Verify schedule belongs to user
-    const currentSchedules = await query('SELECT * FROM schedules WHERE id = ? AND user_id = ?', [scheduleId, userId]);
-    if (currentSchedules.length === 0) {
-      return res.status(404).json({ message: 'Schedule not found or unauthorized.' });
-    }
-
-    // 2. Verify subject belongs to user
-    const subjects = await query('SELECT * FROM subjects WHERE id = ? AND user_id = ?', [subject_id, userId]);
-    if (subjects.length === 0) {
-      return res.status(400).json({ message: 'Invalid subject or unauthorized.' });
-    }
-
-    const targetSubject = subjects[0];
-
-    // 3. Check for schedule conflict/overlap (excluding this schedule itself)
-    const conflictingSchedules = await query(`
-      SELECT s.*, sub.name AS subject_name 
-      FROM schedules s
-      INNER JOIN subjects sub ON s.subject_id = sub.id
-      WHERE s.user_id = ? 
-        AND s.day_of_week = ? 
-        AND s.start_time < ? 
-        AND s.end_time > ?
-        AND s.id != ?
-    `, [userId, day_of_week, end_time, start_time, scheduleId]);
-
-    if (conflictingSchedules.length > 0) {
-      const conflict = conflictingSchedules[0];
-      const conflictStart = conflict.start_time.substring(0, 5);
-      const conflictEnd = conflict.end_time.substring(0, 5);
-      return res.status(400).json({ 
-        message: `Trùng lịch học! Đã có môn "${conflict.subject_name}" học từ ${conflictStart} đến ${conflictEnd} vào ngày này.` 
-      });
-    }
-
-    // 4. Update schedule
-    await query(
-      'UPDATE schedules SET subject_id = ?, day_of_week = ?, start_time = ?, end_time = ?, room = ? WHERE id = ? AND user_id = ?',
-      [subject_id, day_of_week, start_time, end_time, room ? room.trim() : null, scheduleId, userId]
-    );
-
-    res.json({
-      id: parseInt(scheduleId, 10),
-      user_id: userId,
-      subject_id,
-      day_of_week,
-      start_time,
-      end_time,
-      room: room ? room.trim() : null,
-      subject_name: targetSubject.name,
-      subject_credit: targetSubject.credit,
-      subject_score: targetSubject.score
-    });
-  } catch (error) {
-    console.error('Update schedule error:', error);
-    res.status(500).json({ message: 'Failed to update schedule.' });
-  }
-});
-
-// ==========================================
-// 4. ASSIGNMENTS / PERSONAL TASKS ENDPOINTS (Protected)
-// ==========================================
-
-// Get all assignments/tasks
-app.get('/api/assignments', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-
-  try {
-    const assignments = await query(`
-      SELECT a.*, sub.name AS subject_name, sub.credit AS subject_credit
-      FROM assignments a
-      LEFT JOIN subjects sub ON a.subject_id = sub.id
-      WHERE a.user_id = ?
-      ORDER BY a.deadline ASC
-    `, [userId]);
-    res.json(assignments);
-  } catch (error) {
-    console.error('Get assignments error:', error);
-    res.status(500).json({ message: 'Failed to retrieve assignments.' });
-  }
-});
-
-// Add an assignment/task
-app.post('/api/assignments', authMiddleware, async (req, res) => {
-  const { title, description, deadline, subject_id } = req.body;
-  const userId = req.user.id;
-
-  if (!title || !deadline) {
-    return res.status(400).json({ message: 'Title and deadline are required.' });
-  }
-
-  try {
-    let subjectName = null;
-    let subjectCredit = null;
-
-    if (subject_id) {
-      const subjects = await query('SELECT * FROM subjects WHERE id = ? AND user_id = ?', [subject_id, userId]);
-      if (subjects.length === 0) {
-        return res.status(400).json({ message: 'Invalid subject or unauthorized.' });
-      }
-      subjectName = subjects[0].name;
-      subjectCredit = subjects[0].credit;
-    }
-
-    const result = await query(
-      'INSERT INTO assignments (user_id, subject_id, title, description, deadline, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, subject_id || null, title.trim(), description ? description.trim() : null, deadline, 'pending']
-    );
-
-    res.status(201).json({
-      id: result.insertId,
-      user_id: userId,
-      subject_id: subject_id || null,
-      title: title.trim(),
-      description: description ? description.trim() : null,
-      deadline,
-      status: 'pending',
-      subject_name: subjectName,
-      subject_credit: subjectCredit
-    });
-  } catch (error) {
-    console.error('Add assignment error:', error);
-    res.status(500).json({ message: 'Failed to add assignment.' });
-  }
-});
-
-// Update an assignment/task
-app.put('/api/assignments/:id', authMiddleware, async (req, res) => {
-  const assignmentId = req.params.id;
-  const { title, description, deadline, subject_id, status } = req.body;
-  const userId = req.user.id;
-
-  if (!title || !deadline) {
-    return res.status(400).json({ message: 'Title and deadline are required.' });
-  }
-
-  try {
-    const currentAssignments = await query('SELECT * FROM assignments WHERE id = ? AND user_id = ?', [assignmentId, userId]);
-    if (currentAssignments.length === 0) {
-      return res.status(404).json({ message: 'Assignment not found or unauthorized.' });
-    }
-
-    let subjectName = null;
-    let subjectCredit = null;
-
-    if (subject_id) {
-      const subjects = await query('SELECT * FROM subjects WHERE id = ? AND user_id = ?', [subject_id, userId]);
-      if (subjects.length === 0) {
-        return res.status(400).json({ message: 'Invalid subject or unauthorized.' });
-      }
-      subjectName = subjects[0].name;
-      subjectCredit = subjects[0].credit;
-    }
-
-    const assignmentStatus = status || 'pending';
-
-    await query(
-      'UPDATE assignments SET subject_id = ?, title = ?, description = ?, deadline = ?, status = ? WHERE id = ? AND user_id = ?',
-      [subject_id || null, title.trim(), description ? description.trim() : null, deadline, assignmentStatus, assignmentId, userId]
-    );
-
-    res.json({
-      id: parseInt(assignmentId, 10),
-      user_id: userId,
-      subject_id: subject_id || null,
-      title: title.trim(),
-      description: description ? description.trim() : null,
-      deadline,
-      status: assignmentStatus,
-      subject_name: subjectName,
-      subject_credit: subjectCredit
-    });
-  } catch (error) {
-    console.error('Update assignment error:', error);
-    res.status(500).json({ message: 'Failed to update assignment.' });
-  }
-});
-
-// Delete an assignment/task
-app.delete('/api/assignments/:id', authMiddleware, async (req, res) => {
-  const assignmentId = req.params.id;
-  const userId = req.user.id;
-
-  try {
-    const assignments = await query('SELECT * FROM assignments WHERE id = ? AND user_id = ?', [assignmentId, userId]);
-    if (assignments.length === 0) {
-      return res.status(404).json({ message: 'Assignment not found or unauthorized.' });
-    }
-
-    await query('DELETE FROM assignments WHERE id = ? AND user_id = ?', [assignmentId, userId]);
-    res.json({ message: 'Assignment deleted successfully.' });
-  } catch (error) {
-    console.error('Delete assignment error:', error);
-    res.status(500).json({ message: 'Failed to delete assignment.' });
-  }
-});
-
-// Patch status (toggle status pending/completed)
-app.patch('/api/assignments/:id/status', authMiddleware, async (req, res) => {
-  const assignmentId = req.params.id;
-  const { status } = req.body;
-  const userId = req.user.id;
-
-  if (!status || (status !== 'pending' && status !== 'completed')) {
-    return res.status(400).json({ message: 'Valid status ("pending" or "completed") is required.' });
-  }
-
-  try {
-    const assignments = await query('SELECT * FROM assignments WHERE id = ? AND user_id = ?', [assignmentId, userId]);
-    if (assignments.length === 0) {
-      return res.status(404).json({ message: 'Assignment not found or unauthorized.' });
-    }
-
-    await query('UPDATE assignments SET status = ? WHERE id = ? AND user_id = ?', [status, assignmentId, userId]);
-    res.json({ id: parseInt(assignmentId, 10), status });
-  } catch (error) {
-    console.error('Toggle assignment status error:', error);
-    res.status(500).json({ message: 'Failed to update assignment status.' });
-  }
-});
-
-// ==========================================
-// 5. CERTIFICATES CRUD ENDPOINTS (Protected)
-// ==========================================
-
-app.get('/api/certificates', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const certs = await query('SELECT * FROM certificates WHERE user_id = ? ORDER BY created_at DESC', [userId]);
-    res.json(certs);
-  } catch (error) {
-    console.error('Get certs error:', error);
-    res.status(500).json({ message: 'Failed to retrieve certificates.' });
-  }
-});
-
-app.post('/api/certificates', authMiddleware, async (req, res) => {
-  const { name, status, score, exam_date, expiry_date } = req.body;
-  const userId = req.user.id;
-
-  if (!name) {
-    return res.status(400).json({ message: 'Tên chứng chỉ là bắt buộc.' });
-  }
-
-  try {
-    const result = await query(
-      'INSERT INTO certificates (user_id, name, status, score, exam_date, expiry_date) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        userId, 
-        name.trim(), 
-        status || 'studying', 
-        score ? score.trim() : null, 
-        exam_date || null, 
-        expiry_date || null
-      ]
-    );
-
-    res.status(201).json({
-      id: result.insertId,
-      user_id: userId,
-      name: name.trim(),
-      status: status || 'studying',
-      score: score ? score.trim() : null,
-      exam_date: exam_date || null,
-      expiry_date: expiry_date || null
-    });
-  } catch (error) {
-    console.error('Add cert error:', error);
-    res.status(500).json({ message: 'Failed to add certificate.' });
-  }
-});
-
-app.put('/api/certificates/:id', authMiddleware, async (req, res) => {
-  const certId = req.params.id;
-  const { name, status, score, exam_date, expiry_date } = req.body;
-  const userId = req.user.id;
-
-  if (!name) {
-    return res.status(400).json({ message: 'Tên chứng chỉ là bắt buộc.' });
-  }
-
-  try {
-    const certs = await query('SELECT * FROM certificates WHERE id = ? AND user_id = ?', [certId, userId]);
-    if (certs.length === 0) {
-      return res.status(404).json({ message: 'Certificate not found or unauthorized.' });
-    }
-
-    await query(
-      'UPDATE certificates SET name = ?, status = ?, score = ?, exam_date = ?, expiry_date = ? WHERE id = ? AND user_id = ?',
-      [
-        name.trim(), 
-        status || 'studying', 
-        score ? score.trim() : null, 
-        exam_date || null, 
-        expiry_date || null,
-        certId, 
-        userId
-      ]
-    );
-
-    res.json({
-      id: parseInt(certId, 10),
-      user_id: userId,
-      name: name.trim(),
-      status: status || 'studying',
-      score: score ? score.trim() : null,
-      exam_date: exam_date || null,
-      expiry_date: expiry_date || null
-    });
-  } catch (error) {
-    console.error('Update cert error:', error);
-    res.status(500).json({ message: 'Failed to update certificate.' });
-  }
-});
-
-app.delete('/api/certificates/:id', authMiddleware, async (req, res) => {
-  const certId = req.params.id;
-  const userId = req.user.id;
-
-  try {
-    const certs = await query('SELECT * FROM certificates WHERE id = ? AND user_id = ?', [certId, userId]);
-    if (certs.length === 0) {
-      return res.status(404).json({ message: 'Certificate not found or unauthorized.' });
-    }
-
-    await query('DELETE FROM certificates WHERE id = ? AND user_id = ?', [certId, userId]);
-    res.json({ message: 'Certificate deleted successfully.' });
-  } catch (error) {
-    console.error('Delete cert error:', error);
-    res.status(500).json({ message: 'Failed to delete certificate.' });
-  }
-});
-
-// ==========================================
-// 6. INTERNSHIP & JOB SEARCH ENDPOINTS (Protected)
-// ==========================================
-
-// Companies
-app.get('/api/companies', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const companies = await query('SELECT * FROM companies WHERE user_id = ? ORDER BY created_at DESC', [userId]);
-    res.json(companies);
-  } catch (error) {
-    console.error('Get companies error:', error);
-    res.status(500).json({ message: 'Failed to retrieve companies.' });
-  }
-});
-
-app.post('/api/companies', authMiddleware, async (req, res) => {
-  const { name, position, status, note } = req.body;
-  const userId = req.user.id;
-
-  if (!name || !position) {
-    return res.status(400).json({ message: 'Tên công ty và vị trí ứng tuyển là bắt buộc.' });
-  }
-
-  try {
-    const result = await query(
-      'INSERT INTO companies (user_id, name, position, status, note) VALUES (?, ?, ?, ?, ?)',
-      [userId, name.trim(), position.trim(), status || 'not_applied', note ? note.trim() : null]
-    );
-
-    res.status(201).json({
-      id: result.insertId,
-      user_id: userId,
-      name: name.trim(),
-      position: position.trim(),
-      status: status || 'not_applied',
-      note: note ? note.trim() : null
-    });
-  } catch (error) {
-    console.error('Add company error:', error);
-    res.status(500).json({ message: 'Failed to add company.' });
-  }
-});
-
-app.put('/api/companies/:id', authMiddleware, async (req, res) => {
-  const companyId = req.params.id;
-  const { name, position, status, note } = req.body;
-  const userId = req.user.id;
-
-  if (!name || !position) {
-    return res.status(400).json({ message: 'Tên công ty và vị trí ứng tuyển là bắt buộc.' });
-  }
-
-  try {
-    const comps = await query('SELECT * FROM companies WHERE id = ? AND user_id = ?', [companyId, userId]);
-    if (comps.length === 0) {
-      return res.status(404).json({ message: 'Company not found or unauthorized.' });
-    }
-
-    await query(
-      'UPDATE companies SET name = ?, position = ?, status = ?, note = ? WHERE id = ? AND user_id = ?',
-      [name.trim(), position.trim(), status || 'not_applied', note ? note.trim() : null, companyId, userId]
-    );
-
-    res.json({
-      id: parseInt(companyId, 10),
-      user_id: userId,
-      name: name.trim(),
-      position: position.trim(),
-      status: status || 'not_applied',
-      note: note ? note.trim() : null
-    });
-  } catch (error) {
-    console.error('Update company error:', error);
-    res.status(500).json({ message: 'Failed to update company.' });
-  }
-});
-
-app.delete('/api/companies/:id', authMiddleware, async (req, res) => {
-  const companyId = req.params.id;
-  const userId = req.user.id;
-
-  try {
-    const comps = await query('SELECT * FROM companies WHERE id = ? AND user_id = ?', [companyId, userId]);
-    if (comps.length === 0) {
-      return res.status(404).json({ message: 'Company not found or unauthorized.' });
-    }
-
-    await query('DELETE FROM companies WHERE id = ? AND user_id = ?', [companyId, userId]);
-    res.json({ message: 'Company deleted successfully.' });
-  } catch (error) {
-    console.error('Delete company error:', error);
-    res.status(500).json({ message: 'Failed to delete company.' });
-  }
-});
-
-// Interviews
-app.get('/api/interviews', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const interviews = await query(
-      `SELECT i.*, c.name AS company_name, c.position AS company_position 
-       FROM interviews i 
-       INNER JOIN companies c ON i.company_id = c.id 
-       WHERE i.user_id = ? 
-       ORDER BY i.interview_time ASC`,
-      [userId]
-    );
-    res.json(interviews);
-  } catch (error) {
-    console.error('Get interviews error:', error);
-    res.status(500).json({ message: 'Failed to retrieve interviews.' });
-  }
-});
-
-app.post('/api/interviews', authMiddleware, async (req, res) => {
-  const { company_id, interview_time, location, note } = req.body;
-  const userId = req.user.id;
-
-  if (!company_id || !interview_time) {
-    return res.status(400).json({ message: 'Công ty và thời gian phỏng vấn là bắt buộc.' });
-  }
-
-  try {
-    const comps = await query('SELECT * FROM companies WHERE id = ? AND user_id = ?', [company_id, userId]);
-    if (comps.length === 0) {
-      return res.status(400).json({ message: 'Invalid company or unauthorized.' });
-    }
-
-    const result = await query(
-      'INSERT INTO interviews (user_id, company_id, interview_time, location, note) VALUES (?, ?, ?, ?, ?)',
-      [userId, company_id, interview_time, location ? location.trim() : null, note ? note.trim() : null]
-    );
-
-    res.status(201).json({
-      id: result.insertId,
-      user_id: userId,
-      company_id,
-      interview_time,
-      location: location ? location.trim() : null,
-      note: note ? note.trim() : null,
-      company_name: comps[0].name,
-      company_position: comps[0].position
-    });
-  } catch (error) {
-    console.error('Add interview error:', error);
-    res.status(500).json({ message: 'Failed to add interview.' });
-  }
-});
-
-app.put('/api/interviews/:id', authMiddleware, async (req, res) => {
-  const interviewId = req.params.id;
-  const { company_id, interview_time, location, note } = req.body;
-  const userId = req.user.id;
-
-  if (!company_id || !interview_time) {
-    return res.status(400).json({ message: 'Công ty và thời gian phỏng vấn là bắt buộc.' });
-  }
-
-  try {
-    const ints = await query('SELECT * FROM interviews WHERE id = ? AND user_id = ?', [interviewId, userId]);
-    if (ints.length === 0) {
-      return res.status(404).json({ message: 'Interview not found or unauthorized.' });
-    }
-
-    const comps = await query('SELECT * FROM companies WHERE id = ? AND user_id = ?', [company_id, userId]);
-    if (comps.length === 0) {
-      return res.status(400).json({ message: 'Invalid company or unauthorized.' });
-    }
-
-    await query(
-      'UPDATE interviews SET company_id = ?, interview_time = ?, location = ?, note = ? WHERE id = ? AND user_id = ?',
-      [company_id, interview_time, location ? location.trim() : null, note ? note.trim() : null, interviewId, userId]
-    );
-
-    res.json({
-      id: parseInt(interviewId, 10),
-      user_id: userId,
-      company_id,
-      interview_time,
-      location: location ? location.trim() : null,
-      note: note ? note.trim() : null,
-      company_name: comps[0].name,
-      company_position: comps[0].position
-    });
-  } catch (error) {
-    console.error('Update interview error:', error);
-    res.status(500).json({ message: 'Failed to update interview.' });
-  }
-});
-
-app.delete('/api/interviews/:id', authMiddleware, async (req, res) => {
-  const interviewId = req.params.id;
-  const userId = req.user.id;
-
-  try {
-    const ints = await query('SELECT * FROM interviews WHERE id = ? AND user_id = ?', [interviewId, userId]);
-    if (ints.length === 0) {
-      return res.status(404).json({ message: 'Interview not found or unauthorized.' });
-    }
-
-    await query('DELETE FROM interviews WHERE id = ? AND user_id = ?', [interviewId, userId]);
-    res.json({ message: 'Interview deleted successfully.' });
-  } catch (error) {
-    console.error('Delete interview error:', error);
-    res.status(500).json({ message: 'Failed to delete interview.' });
-  }
-});
-
-// ==========================================
-// 7. CAREER GOALS ENDPOINTS (Protected)
-// ==========================================
-
-app.get('/api/goals', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const goals = await query('SELECT * FROM career_goals WHERE user_id = ? ORDER BY created_at DESC', [userId]);
-    res.json(goals);
-  } catch (error) {
-    console.error('Get goals error:', error);
-    res.status(500).json({ message: 'Failed to retrieve career goals.' });
-  }
-});
-
-app.post('/api/goals', authMiddleware, async (req, res) => {
-  const { title, progress, target_date, status } = req.body;
-  const userId = req.user.id;
-
-  if (!title) {
-    return res.status(400).json({ message: 'Mục tiêu nghề nghiệp là bắt buộc.' });
-  }
-
-  try {
-    const result = await query(
-      'INSERT INTO career_goals (user_id, title, progress, target_date, status) VALUES (?, ?, ?, ?, ?)',
-      [userId, title.trim(), progress || 0, target_date || null, status || 'in_progress']
-    );
-
-    res.status(201).json({
-      id: result.insertId,
-      user_id: userId,
-      title: title.trim(),
-      progress: progress || 0,
-      target_date: target_date || null,
-      status: status || 'in_progress'
-    });
-  } catch (error) {
-    console.error('Add goal error:', error);
-    res.status(500).json({ message: 'Failed to add career goal.' });
-  }
-});
-
-app.put('/api/goals/:id', authMiddleware, async (req, res) => {
-  const goalId = req.params.id;
-  const { title, progress, target_date, status } = req.body;
-  const userId = req.user.id;
-
-  if (!title) {
-    return res.status(400).json({ message: 'Mục tiêu nghề nghiệp là bắt buộc.' });
-  }
-
-  try {
-    const goals = await query('SELECT * FROM career_goals WHERE id = ? AND user_id = ?', [goalId, userId]);
-    if (goals.length === 0) {
-      return res.status(404).json({ message: 'Goal not found or unauthorized.' });
-    }
-
-    await query(
-      'UPDATE career_goals SET title = ?, progress = ?, target_date = ?, status = ? WHERE id = ? AND user_id = ?',
-      [title.trim(), progress || 0, target_date || null, status || 'in_progress', goalId, userId]
-    );
-
-    res.json({
-      id: parseInt(goalId, 10),
-      user_id: userId,
-      title: title.trim(),
-      progress: progress || 0,
-      target_date: target_date || null,
-      status: status || 'in_progress'
-    });
-  } catch (error) {
-    console.error('Update goal error:', error);
-    res.status(500).json({ message: 'Failed to update career goal.' });
-  }
-});
-
-app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
-  const goalId = req.params.id;
-  const userId = req.user.id;
-
-  try {
-    const goals = await query('SELECT * FROM career_goals WHERE id = ? AND user_id = ?', [goalId, userId]);
-    if (goals.length === 0) {
-      return res.status(404).json({ message: 'Goal not found or unauthorized.' });
-    }
-
-    await query('DELETE FROM career_goals WHERE id = ? AND user_id = ?', [goalId, userId]);
-    res.json({ message: 'Goal deleted successfully.' });
-  } catch (error) {
-    console.error('Delete goal error:', error);
-    res.status(500).json({ message: 'Failed to delete career goal.' });
-  }
-});
-
-// ==========================================
-// 8. SKILLS ENDPOINTS (Protected)
-// ==========================================
-
-app.get('/api/skills', authMiddleware, async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const skills = await query('SELECT * FROM skills WHERE user_id = ? ORDER BY proficiency DESC, name ASC', [userId]);
-    res.json(skills);
-  } catch (error) {
-    console.error('Get skills error:', error);
-    res.status(500).json({ message: 'Failed to retrieve skills.' });
-  }
-});
-
-app.post('/api/skills', authMiddleware, async (req, res) => {
-  const { name, proficiency } = req.body;
-  const userId = req.user.id;
-
-  if (!name) {
-    return res.status(400).json({ message: 'Tên kỹ năng là bắt buộc.' });
-  }
-
-  try {
-    const result = await query(
-      'INSERT INTO skills (user_id, name, proficiency) VALUES (?, ?, ?)',
-      [userId, name.trim(), proficiency || 1]
-    );
-
-    res.status(201).json({
-      id: result.insertId,
-      user_id: userId,
-      name: name.trim(),
-      proficiency: proficiency || 1
-    });
-  } catch (error) {
-    console.error('Add skill error:', error);
-    res.status(500).json({ message: 'Failed to add skill.' });
-  }
-});
-
-app.put('/api/skills/:id', authMiddleware, async (req, res) => {
-  const skillId = req.params.id;
-  const { name, proficiency } = req.body;
-  const userId = req.user.id;
-
-  if (!name) {
-    return res.status(400).json({ message: 'Tên kỹ năng là bắt buộc.' });
-  }
-
-  try {
-    const sks = await query('SELECT * FROM skills WHERE id = ? AND user_id = ?', [skillId, userId]);
-    if (sks.length === 0) {
-      return res.status(404).json({ message: 'Skill not found or unauthorized.' });
-    }
-
-    await query(
-      'UPDATE skills SET name = ?, proficiency = ? WHERE id = ? AND user_id = ?',
-      [name.trim(), proficiency || 1, skillId, userId]
-    );
-
-    res.json({
-      id: parseInt(skillId, 10),
-      user_id: userId,
-      name: name.trim(),
-      proficiency: proficiency || 1
-    });
-  } catch (error) {
-    console.error('Update skill error:', error);
-    res.status(500).json({ message: 'Failed to update skill.' });
-  }
-});
-
-app.delete('/api/skills/:id', authMiddleware, async (req, res) => {
-  const skillId = req.params.id;
-  const userId = req.user.id;
-
-  try {
-    const sks = await query('SELECT * FROM skills WHERE id = ? AND user_id = ?', [skillId, userId]);
-    if (sks.length === 0) {
-      return res.status(404).json({ message: 'Skill not found or unauthorized.' });
-    }
-
-    await query('DELETE FROM skills WHERE id = ? AND user_id = ?', [skillId, userId]);
-    res.json({ message: 'Skill deleted successfully.' });
-  } catch (error) {
-    console.error('Delete skill error:', error);
-    res.status(500).json({ message: 'Failed to delete skill.' });
-  }
-});
-
-// ==========================================
-// 9. ADMIN PANEL ENDPOINTS (Protected, Admin role required)
-// ==========================================
-
-// Get all users
-app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
-  const search = req.query.search || '';
-  try {
-    let sql = 'SELECT id, username, fullname, email, role, is_blocked, created_at FROM users';
-    const params = [];
-    if (search) {
-      sql += ' WHERE username LIKE ? OR email LIKE ? OR fullname LIKE ?';
-      const searchParam = `%${search}%`;
-      params.push(searchParam, searchParam, searchParam);
-    }
-    sql += ' ORDER BY created_at DESC';
-    const users = await query(sql, params);
-    res.json(users);
-  } catch (error) {
-    console.error('Admin get users error:', error);
-    res.status(500).json({ message: 'Failed to retrieve users.' });
-  }
-});
-
-// Toggle user block status
-app.put('/api/admin/users/:id/block', authMiddleware, adminMiddleware, async (req, res) => {
-  const userId = req.params.id;
-  const { is_blocked } = req.body;
-
-  if (parseInt(userId, 10) === req.user.id) {
-    return res.status(400).json({ message: 'Bạn không thể tự khóa tài khoản của chính mình.' });
-  }
-
-  try {
-    await query('UPDATE users SET is_blocked = ? WHERE id = ?', [is_blocked ? 1 : 0, userId]);
-    res.json({ message: `Tài khoản đã được ${is_blocked ? 'khóa' : 'mở khóa'} thành công.` });
-  } catch (error) {
-    console.error('Admin block user error:', error);
-    res.status(500).json({ message: 'Failed to update user block status.' });
-  }
-});
-
-// Delete user
-app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
-  const userId = req.params.id;
-
-  if (parseInt(userId, 10) === req.user.id) {
-    return res.status(400).json({ message: 'Bạn không thể tự xóa tài khoản của chính mình.' });
-  }
-
-  try {
-    await query('DELETE FROM users WHERE id = ?', [userId]);
-    res.json({ message: 'Tài khoản người dùng đã được xóa thành công.' });
-  } catch (error) {
-    console.error('Admin delete user error:', error);
-    res.status(500).json({ message: 'Failed to delete user.' });
-  }
-});
-
-// System statistics
-app.get('/api/admin/stats', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const usersCount = await query('SELECT COUNT(*) AS count FROM users');
-    const certsCount = await query('SELECT COUNT(*) AS count FROM certificates');
-    const goalsCount = await query('SELECT COUNT(*) AS count FROM career_goals');
-    const companiesCount = await query('SELECT COUNT(*) AS count FROM companies');
-
-    res.json({
-      totalUsers: usersCount[0].count,
-      totalCertificates: certsCount[0].count,
-      totalCareerGoals: goalsCount[0].count,
-      totalInternships: companiesCount[0].count
-    });
-  } catch (error) {
-    console.error('Admin get stats error:', error);
-    res.status(500).json({ message: 'Failed to retrieve admin stats.' });
-  }
-});
-
-
-// ==========================================
-// 10. CHAT AI / CAREER ADVISOR ENDPOINT (Protected)
-// ==========================================
-app.post('/api/chat', authMiddleware, async (req, res) => {
-  const { message, history } = req.body;
-  const userId = req.user.id;
-
-  if (!message) {
-    return res.status(400).json({ message: 'Message is required.' });
-  }
-
-  try {
-    // Fetch user context for AI advisor
-    const user = (await query('SELECT username, fullname, email FROM users WHERE id = ?', [userId]))[0] || {};
-    const subjects = await query('SELECT * FROM subjects WHERE user_id = ?', [userId]);
-    const schedules = await query(`
-      SELECT s.*, sub.name AS subject_name 
-      FROM schedules s
-      INNER JOIN subjects sub ON s.subject_id = sub.id
-      WHERE s.user_id = ?
-    `, [userId]);
-    const assignments = await query(`
-      SELECT a.*, sub.name AS subject_name 
-      FROM assignments a 
-      LEFT JOIN subjects sub ON a.subject_id = sub.id 
-      WHERE a.user_id = ?
-    `, [userId]);
-    const certificates = await query('SELECT * FROM certificates WHERE user_id = ?', [userId]);
-    const goals = await query('SELECT * FROM career_goals WHERE user_id = ?', [userId]);
-    const skills = await query('SELECT * FROM skills WHERE user_id = ?', [userId]);
-    const companies = await query('SELECT * FROM companies WHERE user_id = ?', [userId]);
-    const interviews = await query(`
-      SELECT i.*, c.name AS company_name, c.position AS company_position 
-      FROM interviews i 
-      INNER JOIN companies c ON i.company_id = c.id
-      WHERE i.user_id = ?
-    `, [userId]);
-
-    // GPA calculations
-    const getGradePoint4 = (score) => {
-      if (score === null || score === undefined) return 0.0;
-      const s = parseFloat(score);
-      if (s >= 9.0) return 4.0;
-      if (s >= 8.5) return 3.7;
-      if (s >= 8.0) return 3.5;
-      if (s >= 7.0) return 3.0;
-      if (s >= 6.5) return 2.5;
-      if (s >= 6.0) return 2.0;
-      if (s >= 5.0) return 1.5;
-      if (s >= 4.0) return 1.0;
-      return 0.0;
-    };
-
-    const totalCredits = subjects.reduce((sum, sub) => sum + sub.credit, 0);
-    const gradedSubjects = subjects.filter(sub => sub.status === 'completed' && sub.score !== null);
-    const gradedCredits = gradedSubjects.reduce((sum, sub) => sum + sub.credit, 0);
-    
-    const weightedScoreSum10 = gradedSubjects.reduce((sum, sub) => sum + (parseFloat(sub.score) * sub.credit), 0);
-    const gpa10 = gradedCredits > 0 ? (weightedScoreSum10 / gradedCredits) : 0;
-    
-    const weightedScoreSum4 = gradedSubjects.reduce((sum, sub) => sum + (getGradePoint4(sub.score) * sub.credit), 0);
-    const gpa4 = gradedCredits > 0 ? (weightedScoreSum4 / gradedCredits) : 0;
-
-    // Local report generator helper
-    const buildLocalReport = () => {
-      let r = `Chào bạn **${user.fullname || user.username}**! Tôi là **AI Career Advisor (Chế độ cục bộ)**. 
-
-Do quản trị viên chưa cấu hình API Key cho Gemini (thiếu \`GEMINI_API_KEY\` trong file \`.env\`), tôi đã tổng hợp báo cáo và lộ trình nghề nghiệp tự động dựa trên dữ liệu tài khoản của bạn:
-
-🎯 **Mục tiêu nghề nghiệp đã đặt:**
-${goals.length > 0 ? goals.map(g => `- **${g.title}** (Tiến độ: **${g.progress}%** | Trạng thái: ${g.status === 'completed' ? 'Đã hoàn thành' : 'Đang thực hiện'})`).join('\n') : '- Bạn chưa đặt mục tiêu nghề nghiệp cụ thể nào. Hãy đặt mục tiêu nghề nghiệp như Frontend Developer, Backend Developer, Tester... để nhận định hướng!'}
-
-🛠 **Bản đồ Kỹ năng hiện tại:**
-${skills.length > 0 ? skills.map(s => `- **${s.name}**: ${'⭐'.repeat(s.proficiency)}/5 sao`).join('\n') : '- Bạn chưa cập nhật kỹ năng nào.'}
-
-📜 **Chứng chỉ học thuật:**
-${certificates.length > 0 ? certificates.map(c => `- **${c.name}**: Điểm số **${c.score || 'Đang học'}** | Trạng thái: ${c.status === 'obtained' ? 'Đã có' : 'Đang học'}`).join('\n') : '- Bạn chưa thêm chứng chỉ nào.'}
-
-💼 **Thực tập & Tìm việc:**
-- Bạn đang theo dõi **${companies.length} công ty ứng tuyển**.
-${companies.map(c => `  + **${c.name}** (${c.position}) - Trạng thái: **${c.status === 'not_applied' ? 'Chưa ứng tuyển' : c.status === 'sent_cv' ? 'Đã gửi CV' : c.status === 'interviewing' ? 'Đang phỏng vấn' : c.status === 'passed' ? 'Đậu' : 'Trượt'}**`).join('\n')}
-- Bạn có **${interviews.length} lịch phỏng vấn** sắp tới.
-
-📚 **Tổng quan học tập & GPA:**
-- Tổng số môn học: **${subjects.length}** (GPA: **${gpa4.toFixed(2)}/4.0**).
-
-💡 **Khuyến nghị Lộ trình Nghề nghiệp:**
-1. ${goals.length > 0 ? `Để đạt mục tiêu **${goals[0].title}**, bạn nên tiếp tục nâng mức thành thạo của các kỹ năng liên quan lên trên 4 sao.` : 'Đặt mục tiêu nghề nghiệp đầu tiên của bạn trong tab "Mục tiêu & Kỹ năng".'}
-2. Hãy chuẩn bị thi lấy thêm các chứng chỉ ngoại ngữ hoặc chuyên môn phù hợp như **IELTS, TOEIC, MOS, hay JLPT** để làm nổi bật CV.
-3. Liên tục theo dõi trạng thái ứng tuyển và chuẩn bị kỹ càng cho các lịch phỏng vấn tiếp theo.`;
-      return r;
-    };
-
-    // If no API key is available
-    if (!process.env.GEMINI_API_KEY) {
-      return res.json({ reply: buildLocalReport() });
-    }
-
-    // System instruction prompt for Gemini
-    const systemPrompt = `Bạn là AI Career Advisor (Cố vấn nghề nghiệp AI) chuyên nghiệp tích hợp trong ứng dụng Student Planner.
-Tên sinh viên: ${user.fullname || user.username} (${user.email || 'Chưa cập nhật email'}).
-
-Dữ liệu hồ sơ của sinh viên:
-1. Học tập:
-   - Tổng môn học: ${subjects.length} | Tín chỉ hoàn thành: ${gradedCredits}
-   - GPA: ${gpa4.toFixed(2)}/4.0 (Hệ 10: ${gpa10.toFixed(2)})
-   - Chi tiết môn: ${subjects.map(s => `${s.name} (${s.credit} TC, Điểm: ${s.score || 'N/A'}, ${s.status === 'completed' ? 'Đã hoàn tất' : 'Đang học'})`).join(', ')}
-
-2. Mục tiêu nghề nghiệp:
-   - ${goals.map(g => `${g.title} (Tiến độ: ${g.progress}%, Trạng thái: ${g.status})`).join('; ') || 'Chưa thiết lập mục tiêu'}
-
-3. Kỹ năng chuyên môn:
-   - ${skills.map(s => `${s.name} (${s.proficiency}/5 sao)`).join('; ') || 'Chưa có kỹ năng nào'}
-
-4. Chứng chỉ:
-   - ${certificates.map(c => `${c.name} (Điểm: ${c.score || 'N/A'}, Trạng thái: ${c.status}, Ngày thi: ${c.exam_date || 'N/A'}, Hạn: ${c.expiry_date || 'N/A'})`).join('; ') || 'Chưa có chứng chỉ'}
-
-5. Thực tập & Ứng tuyển:
-   - Công ty: ${companies.map(c => `${c.name} (Vị trí: ${c.position}, Trạng thái: ${c.status})`).join('; ') || 'Chưa ứng tuyển công ty nào'}
-   - Lịch phỏng vấn: ${interviews.map(i => `Tại ${i.company_name} lúc ${new Date(i.interview_time).toLocaleString('vi-VN')} (${i.location || 'Chưa rõ địa điểm'})`).join('; ') || 'Chưa có lịch phỏng vấn'}
-
-Nhiệm vụ của bạn:
-1. Đóng vai trò là một cố vấn nghề nghiệp thông thái, thân thiện và giàu kinh nghiệm để đưa ra định hướng chính xác nhất.
-2. Trả lời các thắc mắc về:
-   - Gợi ý lộ trình học cụ thể để đạt được nghề nghiệp mong muốn (như Frontend, Backend, Data Analyst, Tester...).
-   - Gợi ý các kỹ năng quan trọng cần bồi dưỡng thêm dựa trên các mục tiêu nghề nghiệp và các kỹ năng hiện có của sinh viên.
-   - Gợi ý các chứng chỉ (IELTS, TOEIC, MOS, JLPT, các chứng chỉ chuyên môn...) nên thi để tăng lợi thế cạnh tranh.
-   - Đề xuất kế hoạch phân bổ thời gian học tập, ôn thi chứng chỉ, làm đồ án và nộp hồ sơ thực tập/tìm việc tối ưu nhất dựa trên dữ liệu hiện tại của sinh viên.
-3. Đưa ra phản hồi ngắn gọn, dễ hiểu, sử dụng định dạng Markdown rõ ràng (bullet points, bolding). Hãy cổ vũ và truyền cảm hứng cho sinh viên!`;
-
-    // Format conversation history for Gemini API
-    const formattedContents = (history || []).map(msg => ({
-      role: msg.sender === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.text }]
-    }));
-
-    // Add current user message
-    formattedContents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-    
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: formattedContents,
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Gemini API Error details:', errorData);
-      throw new Error(`Gemini API returned status ${response.status}`);
-    }
-
-    const data = await response.json();
-    const replyText = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Xin lỗi, tôi không thể xử lý câu trả lời này.';
-
-    res.json({ reply: replyText });
-
-  } catch (error) {
-    console.error('AI Chat Error:', error);
-    res.status(500).json({ message: 'Lỗi khi kết nối tới Trợ lý AI Cố vấn nghề nghiệp. Vui lòng thử lại sau.' });
   }
 });
 

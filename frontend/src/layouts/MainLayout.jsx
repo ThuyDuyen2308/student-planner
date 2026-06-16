@@ -1,10 +1,16 @@
-import { Link, Outlet, useNavigate } from 'react-router-dom';
-import { BookOpen, LogOut } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { BookOpen, LayoutGrid, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+
+const navItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
+  { to: '/subjects', label: 'Subjects', icon: BookOpen },
+];
 
 export default function MainLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = async () => {
     await logout();
@@ -22,6 +28,26 @@ export default function MainLayout() {
             <span className="text-lg font-semibold">Student Planner</span>
           </Link>
 
+          <nav className="hidden items-center gap-1 md:flex">
+            {navItems.map(({ to, label, icon: Icon }) => {
+              const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+                    active
+                      ? 'bg-indigo-600/20 text-indigo-300'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <Icon size={16} />
+                  {label}
+                </Link>
+              );
+            })}
+          </nav>
+
           <div className="flex items-center gap-4">
             <div className="hidden text-right sm:block">
               <p className="text-sm font-medium">{user?.username}</p>
@@ -37,6 +63,26 @@ export default function MainLayout() {
             </button>
           </div>
         </div>
+
+        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-3 md:hidden">
+          {navItems.map(({ to, label, icon: Icon }) => {
+            const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
+            return (
+              <Link
+                key={to}
+                to={to}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+                  active
+                    ? 'bg-indigo-600/20 text-indigo-300'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                }`}
+              >
+                <Icon size={16} />
+                {label}
+              </Link>
+            );
+          })}
+        </nav>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">

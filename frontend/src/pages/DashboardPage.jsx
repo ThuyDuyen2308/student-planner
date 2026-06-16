@@ -1,4 +1,5 @@
-import { Calendar, Shield, User } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BookOpen, Calendar, Shield, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function DashboardPage() {
@@ -21,8 +22,15 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-3xl font-bold text-white">Welcome back, {user?.username}!</h1>
         <p className="mt-2 text-slate-400">
-          Phase 1 is complete. You are authenticated and viewing a protected dashboard.
+          Browse the synchronized subject catalog or manage your account from here.
         </p>
+        <Link
+          to="/subjects"
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500"
+        >
+          <BookOpen size={16} />
+          View Subjects
+        </Link>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -60,11 +68,11 @@ export default function DashboardPage() {
             </li>
             <li className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              React protected routes with AuthContext
+              Subject catalog: view, search, and detail pages
             </li>
             <li className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-amber-400" />
-              Future phases: subjects, schedules, assignments, and more
+              Future phases: schedules, assignments, and more
             </li>
           </ul>
         </section>

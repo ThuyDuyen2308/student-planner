@@ -110,6 +110,28 @@ curl http://localhost:5000/api/auth/me \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+## API Endpoints (Subject Synchronization)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/subjects` | Yes | List all subjects |
+| GET | `/api/subjects?search=CS` | Yes | Search by code or name |
+| GET | `/api/subjects/:id` | Yes | Get subject details |
+
+### Example: List subjects
+
+```bash
+curl http://localhost:5000/api/subjects \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### Example: Search subjects
+
+```bash
+curl "http://localhost:5000/api/subjects?search=database" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
 ## License
 
 ISC

@@ -6,6 +6,8 @@ import MainLayout from './layouts/MainLayout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
+import SubjectsPage from './pages/SubjectsPage';
+import SubjectDetailPage from './pages/SubjectDetailPage';
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/subjects" element={<SubjectsPage />} />
+              <Route path="/subjects/:id" element={<SubjectDetailPage />} />
             </Route>
           </Route>
 

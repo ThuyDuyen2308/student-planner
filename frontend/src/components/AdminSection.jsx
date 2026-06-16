@@ -67,23 +67,32 @@ export default function AdminSection({ token, API_URL, addToast }) {
     }
 
     try {
+      console.log('Deleting user:', userId); // Log để kiểm tra userId
+      console.log('API_URL:', API_URL); // Log để kiểm tra API_URL
+      console.log('Token:', token); // Log để kiểm tra token
+
       const config = { headers: { Authorization: `Bearer ${token}` } };
-      await axios.delete(`${API_URL}/api/admin/users/${userId}`, config);
-      addToast(`Đã xóa vĩnh viễn tài khoản "${username}"!`, 'success');
-      fetchUsers();
-      fetchStats();
+      const response = await axios.delete(`${API_URL}/api/admin/users/${userId}`, config);
+
+      if (response.status === 200) {
+        addToast(`Đã xóa vĩnh viễn tài khoản "${username}"!`, 'success');
+        fetchUsers(); // Cập nhật danh sách người dùng
+        fetchStats(); // Cập nhật thống kê
+      } else {
+        addToast('Không thể xóa tài khoản người dùng.', 'error');
+      }
     } catch (error) {
-      console.error('Error deleting user:', error);
+      console.error('Error deleting user:', error); // Log lỗi chi tiết
       addToast(error.response?.data?.message || 'Không thể xóa tài khoản người dùng.', 'error');
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      
+
       {/* Aggregate Statistics Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
-        
+
         <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', padding: '1.25rem' }}>
           <div className="auth-logo" style={{ width: '46px', height: '46px', margin: 0, borderRadius: '8px', background: 'linear-gradient(135deg, hsl(250, 85%, 65%), hsl(280, 80%, 65%))' }}>
             <Users size={20} color="white" />
@@ -133,7 +142,7 @@ export default function AdminSection({ token, API_URL, addToast }) {
             <ShieldAlert style={{ color: 'var(--danger)' }} />
             <span>Quản lý tài khoản người dùng</span>
           </h3>
-          
+
           <div className="search-wrapper" style={{ margin: 0, width: '100%', maxWidth: '300px' }}>
             <Search size={16} className="search-icon" />
             <input

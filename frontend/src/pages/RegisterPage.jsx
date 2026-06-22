@@ -7,11 +7,10 @@ export default function RegisterPage() {
   const { register, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    username: '',
-    password: '',
-    confirmPassword: '',
     fullname: '',
     email: '',
+    password: '',
+    confirmPassword: '',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,10 +41,9 @@ export default function RegisterPage() {
 
     try {
       await register({
-        username: form.username.trim(),
+        fullname: form.fullname.trim(),
+        email: form.email.trim(),
         password: form.password,
-        fullname: form.fullname.trim() || undefined,
-        email: form.email.trim() || undefined,
       });
       navigate('/dashboard', { replace: true });
     } catch (err) {
@@ -67,18 +65,18 @@ export default function RegisterPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="username" className="mb-2 block text-sm font-medium text-slate-300">
-            Username *
+          <label htmlFor="fullname" className="mb-2 block text-sm font-medium text-slate-300">
+            Họ và tên
           </label>
           <div className="relative">
             <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
             <input
-              id="username"
+              id="fullname"
               type="text"
-              value={form.username}
-              onChange={updateField('username')}
+              value={form.fullname}
+              onChange={updateField('fullname')}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 py-2.5 pl-10 pr-4 text-white outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="Choose a username"
+              placeholder="Ví dụ: Nguyễn Văn A"
               required
               disabled={loading}
             />
@@ -86,23 +84,8 @@ export default function RegisterPage() {
         </div>
 
         <div>
-          <label htmlFor="fullname" className="mb-2 block text-sm font-medium text-slate-300">
-            Full name
-          </label>
-          <input
-            id="fullname"
-            type="text"
-            value={form.fullname}
-            onChange={updateField('fullname')}
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-            placeholder="Optional"
-            disabled={loading}
-          />
-        </div>
-
-        <div>
           <label htmlFor="email" className="mb-2 block text-sm font-medium text-slate-300">
-            Email
+            Email *
           </label>
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
@@ -112,7 +95,8 @@ export default function RegisterPage() {
               value={form.email}
               onChange={updateField('email')}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 py-2.5 pl-10 pr-4 text-white outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="Optional"
+              placeholder="Email của bạn"
+              required
               disabled={loading}
             />
           </div>

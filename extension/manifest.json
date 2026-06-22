@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Student Planner Sync (DAU)",
+  "version": "1.0",
+  "description": "Tiện ích mở rộng giúp đồng bộ dữ liệu học tập từ cổng thông tin DAU về hệ thống Student Planner.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Đồng bộ DAU"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:5000/*",
+    "https://sinhvien.dau.edu.vn/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

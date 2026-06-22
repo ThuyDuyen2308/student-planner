@@ -8,10 +8,10 @@ function handleError(res, error) {
 }
 
 async function register(req, res) {
-  const { username, password, fullname, email } = req.body;
+  const { email, password, fullname } = req.body;
 
-  if (!username?.trim() || !password) {
-    return res.status(400).json({ message: 'Username and password are required.' });
+  if (!email?.trim() || !password) {
+    return res.status(400).json({ message: 'Email and password are required.' });
   }
 
   if (password.length < 6) {
@@ -20,10 +20,9 @@ async function register(req, res) {
 
   try {
     const result = await authService.register({
-      username: username.trim(),
+      email: email.trim(),
       password,
       fullname,
-      email,
     });
     res.status(201).json(result);
   } catch (error) {
@@ -32,15 +31,15 @@ async function register(req, res) {
 }
 
 async function login(req, res) {
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
-  if (!username?.trim() || !password) {
-    return res.status(400).json({ message: 'Username and password are required.' });
+  if (!email?.trim() || !password) {
+    return res.status(400).json({ message: 'Email and password are required.' });
   }
 
   try {
     const result = await authService.login({
-      username: username.trim(),
+      email: email.trim(),
       password,
     });
     res.json(result);

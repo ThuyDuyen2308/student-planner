@@ -22,19 +22,18 @@ function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
-export async function register({ username, password, fullname, email }) {
+export async function register({ email, password, fullname }) {
   const { data } = await api.post('/auth/register', {
-    username,
+    email,
     password,
     fullname,
-    email,
   });
   persistSession(data.token, data.user);
   return data;
 }
 
-export async function login({ username, password }) {
-  const { data } = await api.post('/auth/login', { username, password });
+export async function login({ email, password }) {
+  const { data } = await api.post('/auth/login', { email, password });
   persistSession(data.token, data.user);
   return data;
 }

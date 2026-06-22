@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Đồng bộ DAU</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      background-color: #0f172a; /* slate-950 */
+      color: #f1f5f9; /* slate-100 */
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 18px;
+      color: #818cf8; /* indigo-400 */
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .input-group {
+      margin-bottom: 12px;
+    }
+    .input-group label {
+      display: block;
+      font-size: 13px;
+      color: #94a3b8; /* slate-400 */
+      margin-bottom: 4px;
+    }
+    .input-group input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #334155; /* slate-700 */
+      background-color: #1e293b; /* slate-800 */
+      color: white;
+      outline: none;
+    }
+    .input-group input:focus {
+      border-color: #6366f1; /* indigo-500 */
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      background-color: #4f46e5; /* indigo-600 */
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .btn:hover {
+      background-color: #4338ca; /* indigo-700 */
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-danger {
+      background-color: #e11d48; /* rose-600 */
+      margin-top: 8px;
+    }
+    .btn-danger:hover {
+      background-color: #be123c; /* rose-700 */
+    }
+    .message {
+      margin-top: 12px;
+      font-size: 13px;
+      text-align: center;
+      padding: 8px;
+      border-radius: 6px;
+      display: none;
+    }
+    .message.error { background-color: rgba(239, 68, 68, 0.1); color: #fca5a5; display: block; border: 1px solid rgba(239, 68, 68, 0.2); }
+    .message.success { background-color: rgba(16, 185, 129, 0.1); color: #6ee7b7; display: block; border: 1px solid rgba(16, 185, 129, 0.2); }
+    
+    /* Screens */
+    #login-screen, #sync-screen { display: none; }
+    #login-screen.active, #sync-screen.active { display: block; }
+
+    .sync-info {
+      font-size: 13px;
+      color: #94a3b8;
+      text-align: center;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Student Planner Sync</h2>
+  <div id="msgBox" class="message"></div>
+
+  <!-- Màn hình Đăng nhập -->
+  <div id="login-screen" class="active">
+    <div class="input-group">
+      <label>Email Student Planner</label>
+      <input type="email" id="email" placeholder="Nhập email">
+    </div>
+    <div class="input-group">
+      <label>Mật khẩu</label>
+      <input type="password" id="password" placeholder="Nhập mật khẩu">
+    </div>
+    <button id="btnLogin" class="btn">Đăng nhập kết nối</button>
+  </div>
+
+  <!-- Màn hình Đồng bộ -->
+  <div id="sync-screen">
+    <div class="sync-info">
+      Bạn đã kết nối thành công với tài khoản <strong id="userEmail" style="color:white"></strong>.<br><br>
+      Hãy mở trang <b>sinhvien.dau.edu.vn</b>, sau đó bấm nút bên dưới để tiến hành lấy dữ liệu.
+    </div>
+    <button id="btnSync" class="btn" style="background-color: #059669;">Bắt đầu Cào Dữ Liệu</button>
+    <button id="btnLogout" class="btn btn-danger">Đăng xuất kết nối</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
